@@ -89,11 +89,37 @@ GitHub: pushed to **https://github.com/gesh75/gesh-core** (private) at start of 
   *with* the wiring env and to its own cwd db *without* (so the wiring is what
   preserves behavior).
 
+## Session 4 — 2026-06-20 (trading.config + trading.state union; tracker NOT extracted)
+
+Investigation reframed this phase: **`tracker`/`metrics`/`tracker_weekly` are
+engine-only** (no duplication → no de-drift value, and they're the autonomy-gate
+source of truth, rules #26/#44). They were deliberately **not** extracted. The
+real shared-but-diverged Tier-3 modules were `config` and `state`.
+
+### Shipped ✅ (union-merged — diverged by feature, not accident)
+
+| Module | gesh-core path | Harmonization |
+|---|---|---|
+| `trading.config` | `gesh_core/trading/config.py` | Engine's **superset** RiskConfig (extra gates: max_sector_pct, earnings_proximity_hours, max_consecutive_loss_days, min_confidence_risk_off, market_regime_*) + product's empty-string-robust `_env_float/_env_int`. Product gains the extra fields (additive). Ultra-conservative paper defaults asserted in tests. |
+| `trading.state` | `gesh_core/trading/state.py` | UNION: engine's WAL/busy_timeout + `job_markers`/`get_marker`/`set_marker` (rule #38) + `count_orders_today(approved_only=)` superset signature; product's `_resolve_db` VirtioFS `/tmp` fallback; and the **two-book** `paper_realized_pnl_usd_today` (paper_outcomes + trade_log paper_trades). Engine's paper_trades is empty (rule #20) so its DAILY_LOSS behavior is unchanged. DB path is cwd/`GESH_DB_PATH` → each repo keeps its OWN gesh_financial.db (separate books, rule #44). |
+
+- **Safety boundary preserved:** paper-mode guard tests green in both repos
+  (engine `test_risk_gate_paper_*` + `test_catch_up_on_wake` = 19 passed;
+  product `test_risk_gate_paper_mode.py` = 8 passed). Paper-mode defaults
+  (PAPER_MODE/REQUIRE_APPROVAL True) asserted explicitly in gesh-core tests.
+- **Tests:** +26 gesh-core parity tests (config 16, state 10). Engine **293
+  passed**, product **143 passed** — zero new failures.
+- **Ends the rule-#40 manual-sync burden** for config/state across the two repos.
+
 ### Backlog (later sessions)
 
-- **Tier 3 / structural:** `trading.state` / `trading.config` / `trading.tracker`
-  (+ `metrics`, tracker-coupled), `consensus` (design decision). These need a
-  unified DB schema / dependency inversion before extraction.
+- **`tracker` / `metrics` / `tracker_weekly`:** engine-only by design — NOT
+  extraction candidates (no drift; they are the autonomy-gate source of truth).
+- **`risk_gate.py`:** duplicated + diverged but consumes config/state; extracting
+  it is the next logical Tier-3 step if a single shared gate is wanted. Higher
+  risk (the live-trading boundary) — own session.
+- **`db.py`** (118 diff lines), **`consensus`** (11-node vs 6-node — design
+  decision). Need their own analysis.
 
 ## Rollback
 
