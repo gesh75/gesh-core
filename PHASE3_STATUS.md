@@ -5,6 +5,67 @@ repos by moving shared modules into one installable `gesh-core` package. Each
 consumer keeps a thin transparent shim where the module used to live, so import
 paths stay unchanged.
 
+## ✅ Phase 3 COMPLETE — 2026-06-20
+
+Every module with *accidental* drift (duplicated + diverged shared plumbing) is
+now de-drifted into gesh-core. What remains per-repo is **intentional** (engine-only
+modules, deliberate gate policy, or genuinely different engines) — documented below.
+
+**Extracted (11 modules + 1 helper module), ~121 parity tests, both suites green
+throughout (engine 293 / product 143 + 7 pre-existing):**
+
+| Module | Phase | Harmonization |
+|---|---|---|
+| `allocation_config` | 3.1 | identical → cwd config path |
+| `trading.indicators` | 3.1 | pure (levels dependency) |
+| `trading.levels` | 3.1 | pure |
+| `trading.contract` | 3.2 | engine superset + product symbol cap |
+| `ecg` | 3.2 | product's fixed version (engine gains it) |
+| `kelly` | 3.2 | engine fetch + product `returns=` param |
+| `tax_harvester` | 3.3 | env-driven DB resolver + product entry-point wiring |
+| `trading.config` | 3.4 | engine superset + product robust env parse |
+| `trading.state` | 3.4 | union (WAL/markers + VirtioFS + two-book P&L) |
+| `trading.risk_gate_core` | 3.5 | seam-free helpers (GateVerdict, CASH_FLOOR) |
+| `db` | 3.6 | union (connect/DDL + corruption-tolerant history) |
+
+**Deliberately NOT shared (per-repo by design):**
+
+| Module | Why |
+|---|---|
+| `trading.tracker` / `metrics` / `tracker_weekly` | Engine-only. Autonomy-gate source of truth (rules #26/#44) — no duplication, no drift. |
+| `risk_gate.evaluate()` + time/PnL helpers | Deliberate per-repo gate policy (engine runs 3 extra gates + stricter MARKET_REGIME); also entangled with each repo's `datetime`/dep test seams. Shared math already lives in `state` + `risk_gate_core`. |
+| **`consensus`** | **Two genuinely different engines, not drift.** See decision below. |
+
+### Decision: `consensus` stays per-repo (intentional divergence)
+
+Investigated 2026-06-20. Engine 844 lines vs product 487; **781 diff lines** — the
+divergence is architectural, not accidental:
+
+- **Node signatures:** engine nodes are pure (arrays injected, fetch-once); product
+  nodes self-fetch per symbol.
+- **Node set:** engine 10–11 nodes incl. `fft_from_close` + macro/sentiment +
+  `_regime_weights` (dynamic, **backtest-validated** regime-conditional weighting);
+  product is leaner with a static `NODE_WEIGHTS` dict.
+- **Fetch infra:** engine's `_yf_download_with_retry` / `_ticker_info_with_retry`
+  (Yahoo retry + Robinhood fallback) is an engine-internal utility also used by
+  `risk_gate`/`levels`/`kelly`; product uses `price_source` instead.
+- **Role:** the engine's consensus is the **autonomy-gate signal source of truth**
+  (validated weights); the product's feeds the **customer dashboard**.
+
+Only the verdict thresholds (`raw_score ≥ 0.55 → STRONG BUY`, `≥ 0.25 → BUY`) are
+identical (~10 lines). Forcing a single canonical engine would be a *rewrite of one
+repo's alpha engine*, not a de-drift — and would change either the autonomy gate
+(engine) or customer-facing signals (product). The risk/reward is wrong, so
+consensus is **kept per-repo by design**.
+
+> Future option (a product *strategy* decision, not a refactor): converge the
+> product dashboard onto the engine's validated 11-node consensus. That is a
+> scoped, multi-session initiative with its own acceptance criteria — explicitly
+> out of scope for the Phase 3 de-drift work.
+
+---
+
+
 ## Session 1 — 2026-06-19 (Scaffold + Tier 1)
 
 ### Shipped ✅
@@ -161,8 +222,10 @@ moving them broke those seams. The underlying P&L computation is already shared 
   extraction candidates (no drift; they are the autonomy-gate source of truth).
 - **`risk_gate.evaluate()` + the time/PnL helpers:** intentionally per-repo (gate
   policy + test seams). Could be unified later only with a shared injectable clock.
-- **`consensus`** (11-node engine vs 6-node product — a design decision, not a
-  mechanical merge). Needs its own analysis.
+- **`consensus`** — investigated and **decided: kept per-repo by design** (see the
+  "Decision: consensus stays per-repo" section at the top). Not a backlog item.
+
+> **Phase 3 is complete.** No remaining de-drift work; what's per-repo is intentional.
 
 ## Rollback
 
