@@ -7,11 +7,18 @@ name = "gesh-core"
 version = "0.1.0"
 description = "Shared core modules for the GESH Financial engine and product repos (de-duplication / drift control)."
 requires-python = ">=3.12"
-# Tier-1 modules (allocation_config, trading.levels, trading.contract, trading.metrics)
-# need only the stdlib plus numpy/pandas, which both consumer repos already pin.
+# Direct third-party imports across the extracted modules:
+#   numpy    — ecg, kelly, trading.indicators (module-level)
+#   yfinance — kelly._fetch_returns + trading.levels._fetch_atr (kelly imports it
+#              at module top, so it must be a hard dep; pandas comes transitively).
+# NOTE: kelly._fetch_returns and trading.levels._fetch_atr also do a lazy
+# `import price_source` and `from consensus import ...`. Those are HOST-PROVIDED
+# in-repo modules (engine/product), resolved against the running process's
+# sys.path; they are intentionally NOT declarable here and degrade gracefully
+# when absent.
 dependencies = [
     "numpy>=1.26",
-    "pandas>=2.0",
+    "yfinance>=0.2",
 ]
 
 [tool.setuptools.packages.find]
