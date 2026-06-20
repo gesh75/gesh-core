@@ -6,3 +6,6 @@ dist/
 .pytest_cache/
 .venv/
 venv/
+
+# Runtime artifact written by allocation_config when a test/run calls load_config with no config present
+gesh_config.json
