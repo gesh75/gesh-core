@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gesh-core"
+version = "0.1.0"
+description = "Shared core modules for the GESH Financial engine and product repos (de-duplication / drift control)."
+requires-python = ">=3.12"
+# Tier-1 modules (allocation_config, trading.levels, trading.contract, trading.metrics)
+# need only the stdlib plus numpy/pandas, which both consumer repos already pin.
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
