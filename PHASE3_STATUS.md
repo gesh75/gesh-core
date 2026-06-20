@@ -65,18 +65,35 @@ GitHub: pushed to **https://github.com/gesh75/gesh-core** (private) at start of 
   (2 ai_analyzer caching, 2 consensus tally, 1 price_source network, 2 risk_gate
   sandbox-SPY) are unchanged from baseline (AUDIT_GUIDE §5).
 
-### Deferred (verified, with reason) ⏭️
+## Session 3 — 2026-06-20 (tax_harvester + env wiring)
 
-| Module | Why deferred | Unblock |
+### Shipped ✅
+
+| Module | gesh-core path | Notes |
 |---|---|---|
-| `tax_harvester` | Only real divergence is the **DB-path default**: product reads the *engine's* `gesh_financial.db` via a sibling-path default, and `GESH_TRACKER_DB` is set nowhere in product's runtime. A single shared default needs env wiring across product's launchd plists + server start script. | Set `GESH_TRACKER_DB` for all product entry points, then canonical can default to `cwd`/env. |
+| `tax_harvester` | `gesh_core/tax_harvester.py` | DB path moved off `__file__` to an **env-driven resolver** (`_primary_db()`): `GESH_TRACKER_DB` → `GESH_TRADING_HOME/gesh_financial.db` → `cwd/gesh_financial.db`, resolved at call time. VirtioFS `/tmp` fallback preserved. `generated_at` switched to the non-deprecated `datetime.now(timezone.utc)` form (same output string). |
+
+**Env wiring (the deferral blocker, now closed):**
+- Engine: no wiring — its start scripts `cd` to the engine root, so the cwd
+  fallback resolves to the engine's `gesh_financial.db` exactly as the old
+  `__file__.parent` did.
+- Product: exports `GESH_TRACKER_DB` (defaulting to the sibling engine repo's db)
+  in both launchd-invoked entry points — `start_gesh_main.sh` (server :9000,
+  `/api/tax-harvest`) and `run_daily_analysis.sh` (the 10:30 chain, which `cd`s to
+  the product root). Mirrors the existing `proof_page.py`/`progress_view.py`
+  `GESH_TRACKER_DB` convention.
+
+- **Tests:** +13 gesh-core parity tests (resolver precedence + scan/wash-sale
+  logic, all on a tmp DB via `GESH_TRACKER_DB`). Engine **293 passed**, product
+  **143 passed** — zero new failures. Verified product resolves to the engine db
+  *with* the wiring env and to its own cwd db *without* (so the wiring is what
+  preserves behavior).
 
 ### Backlog (later sessions)
 
 - **Tier 3 / structural:** `trading.state` / `trading.config` / `trading.tracker`
-  (+ `metrics`), `consensus` (design decision). These need a unified DB schema /
-  dependency inversion before extraction.
-- **tax_harvester** env wiring (above).
+  (+ `metrics`, tracker-coupled), `consensus` (design decision). These need a
+  unified DB schema / dependency inversion before extraction.
 
 ## Rollback
 
