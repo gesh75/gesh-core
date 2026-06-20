@@ -1,0 +1,56 @@
+"""Parity tests for gesh_core.trading.levels + indicators (Phase 3.1).
+
+Pins the pure, network-free behavior that the engine's tracker/close-scan rely
+on. The engine keeps its own tests/test_gesh_core_candidates.py exercising the
+same code through the shim; these prove gesh-core is self-contained (the
+relative ``from .indicators import atr`` resolves inside the package).
+"""
+from __future__ import annotations
+
+import numpy as np
+
+from gesh_core.trading import indicators, levels
+
+
+def test_modules_load_from_gesh_core():
+    assert "gesh_core" in (levels.__file__ or "")
+    assert "gesh_core" in (indicators.__file__ or "")
+
+
+def test_flat_default_levels_buy():
+    # No ATR value, ATR fetch path skipped (atr_value passed) -> flat ladder.
+    stop, target = levels._derive_levels("BUY", 100.0, None, None, atr_value=None, symbol=None)
+    assert stop == 95.0      # 5% protective stop
+    assert target == 112.0   # 12% take-profit
+
+
+def test_flat_default_levels_sell_inverted():
+    stop, target = levels._derive_levels("SELL", 100.0, None, None, atr_value=None, symbol=None)
+    assert stop == 105.0
+    assert target == 88.0
+
+
+def test_explicit_levels_preserved():
+    stop, target = levels._derive_levels("BUY", 100.0, 90.0, 130.0)
+    assert (stop, target) == (90.0, 130.0)
+
+
+def test_atr_levels_buy_clamped():
+    # ATR distance within [MIN, MAX] band -> entry ± multiples.
+    stop, target = levels._atr_levels("BUY", 100.0, 2.0)
+    # risk = clamp(3.0*2.0=6.0, 3%..15% of 100) = 6.0 ; reward = 5.0*2.0 = 10.0
+    assert stop == 94.0    # 100 - 6.0
+    assert target == 110.0  # 100 + 10.0
+
+
+def test_atr_levels_bad_input_returns_none():
+    assert levels._atr_levels("BUY", 0.0, 2.0) == (None, None)
+    assert levels._atr_levels("BUY", 100.0, None) == (None, None)
+
+
+def test_indicators_atr_matches_true_range():
+    high = np.array([10.0, 11.0, 12.0, 13.0, 14.0])
+    low = np.array([9.0, 9.5, 10.5, 11.0, 12.0])
+    close = np.array([9.5, 10.5, 11.5, 12.5, 13.5])
+    val = indicators.atr(high, low, close, period=3)
+    assert val is not None and val > 0
