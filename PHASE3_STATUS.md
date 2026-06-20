@@ -136,14 +136,33 @@ moving them broke those seams. The underlying P&L computation is already shared 
   `execution` in both repos. Engine **293 passed**, product **143 passed / 7
   pre-existing** — zero new failures. Paper-mode + market-regime guard tests green.
 
+## Session 6 — 2026-06-20 (db.py union)
+
+`db.py` diverged bidirectionally: engine had a public `connect()` WAL helper +
+`trade_log`/`paper_trades` DDL + env-overridable DB_PATH; product had `_safe_json`
+(corruption-tolerant `get_analysis_by_id`) + `get_portfolio_equity_history`. The
+`analysis_runs`/`equity_snapshots` schema was identical.
+
+### Shipped ✅
+
+| Module | gesh-core path | Union |
+|---|---|---|
+| `db` | `gesh_core/db.py` | Engine's `connect()` (WAL+busy_timeout, used by market_scanner/trade_log/crypto_paper_trading) + trade_log/paper_trades DDL **+** product's `_safe_json` corruption-tolerant `get_analysis_by_id` (keeps `/api/history/{id}` at HTTP 200 on the post-2026-06-02 malformed rows) + `get_portfolio_equity_history` (dashboard sparklines). DB path cwd/`GESH_DB_PATH` → each repo keeps its OWN gesh_financial.db (rule #44). |
+
+- **Full transparent-shim extraction** (unlike risk_gate's partial one), so the
+  `monkeypatch.setattr(db, "DB_PATH", tmp)` seam still works — product
+  `test_db_history` (5) + engine `test_db_wal` (3) green.
+- **Tests:** +9 gesh-core parity tests. Engine **293 passed**, product **143
+  passed / 7 pre-existing** — zero new failures.
+
 ### Backlog (later sessions)
 
 - **`tracker` / `metrics` / `tracker_weekly`:** engine-only by design — NOT
   extraction candidates (no drift; they are the autonomy-gate source of truth).
 - **`risk_gate.evaluate()` + the time/PnL helpers:** intentionally per-repo (gate
   policy + test seams). Could be unified later only with a shared injectable clock.
-- **`db.py`** (118 diff lines), **`consensus`** (11-node vs 6-node — design
-  decision). Need their own analysis.
+- **`consensus`** (11-node engine vs 6-node product — a design decision, not a
+  mechanical merge). Needs its own analysis.
 
 ## Rollback
 
