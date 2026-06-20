@@ -111,13 +111,37 @@ real shared-but-diverged Tier-3 modules were `config` and `state`.
   passed**, product **143 passed** — zero new failures.
 - **Ends the rule-#40 manual-sync burden** for config/state across the two repos.
 
+## Session 5 — 2026-06-20 (risk_gate: shared seam-free helpers)
+
+`risk_gate` diverges as a **deliberate per-repo gate policy** (engine runs 3 extra
+gates — SECTOR_CAP / EARNINGS_PROXIMITY / LOSS_STREAK — and a stricter
+MARKET_REGIME). Forcing a single `evaluate()` would change the *other* repo's
+production trade approvals, so (per the chosen approach) only the **seam-free
+shared primitives** were extracted; each repo keeps its own `evaluate()`.
+
+### Shipped ✅
+
+| New | gesh-core path | What |
+|---|---|---|
+| `trading.risk_gate_core` | `gesh_core/trading/risk_gate_core.py` | `GateVerdict` (the verdict type execution.py imports in both repos), `_kill_switch_present`, and `_post_trade_cash_estimate` (CASH_FLOOR math, rule #32 — PAPER sizes against cfg.paper_cash_usd, LIVE against real cash). Each repo's `risk_gate.py` now imports these (AST-rewired) and keeps its own `evaluate()`. |
+
+**Why only these three:** the time/PnL-entangled helpers (`_within_market_hours`,
+`_quote_age_seconds`, `_daily_pnl_pct`) stay per-repo because the tests freeze each
+risk_gate module's `datetime` and patch its `paper_realized_pnl_usd_today` seam —
+moving them broke those seams. The underlying P&L computation is already shared via
+`state.paper_realized_pnl_usd_today` (Phase 3.4), so the residual drift is minimal.
+
+- **Tests:** +7 gesh-core parity tests (GateVerdict, kill-switch, CASH_FLOOR
+  paper-vs-live). `GateVerdict` identity confirmed shared across `risk_gate` and
+  `execution` in both repos. Engine **293 passed**, product **143 passed / 7
+  pre-existing** — zero new failures. Paper-mode + market-regime guard tests green.
+
 ### Backlog (later sessions)
 
 - **`tracker` / `metrics` / `tracker_weekly`:** engine-only by design — NOT
   extraction candidates (no drift; they are the autonomy-gate source of truth).
-- **`risk_gate.py`:** duplicated + diverged but consumes config/state; extracting
-  it is the next logical Tier-3 step if a single shared gate is wanted. Higher
-  risk (the live-trading boundary) — own session.
+- **`risk_gate.evaluate()` + the time/PnL helpers:** intentionally per-repo (gate
+  policy + test seams). Could be unified later only with a shared injectable clock.
 - **`db.py`** (118 diff lines), **`consensus`** (11-node vs 6-node — design
   decision). Need their own analysis.
 
