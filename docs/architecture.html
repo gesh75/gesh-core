@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>gesh-core · Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#080d14; --surface:#0d1520; --surface2:#111c2b; --border:#1a2840;
+    --cyan:#00d4ff; --green:#00e87a; --yellow:#f0b429; --red:#ff3c5a; --purple:#a78bfa;
+    --text:#dce6f2; --muted:#7b8ca3; --dim:#4a5a72;
+    --mono:'JetBrains Mono',ui-monospace,monospace; --sans:'Inter',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.6;
+    background-image:radial-gradient(circle at 15% 0%,rgba(0,212,255,.06),transparent 45%),radial-gradient(circle at 85% 10%,rgba(0,232,122,.05),transparent 45%);}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 22px 90px}
+  code,.mono{font-family:var(--mono)}
+  a{color:var(--cyan);text-decoration:none}
+
+  /* hero */
+  header{padding:64px 0 34px;text-align:center;border-bottom:1px solid var(--border);margin-bottom:40px;
+    background:linear-gradient(180deg,rgba(0,212,255,.04),transparent)}
+  .badge{display:inline-block;font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--cyan);border:1px solid var(--border);background:var(--surface);padding:6px 14px;border-radius:999px;margin-bottom:20px}
+  h1{font-size:54px;font-weight:800;letter-spacing:-.02em;
+    background:linear-gradient(90deg,#fff,var(--cyan) 60%,var(--green));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .tag{font-family:var(--mono);color:var(--muted);margin-top:8px;font-size:14px}
+  .sub{max-width:680px;margin:18px auto 0;color:var(--muted);font-size:16px}
+  .pill-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:22px}
+  .pill{font-family:var(--mono);font-size:12px;padding:6px 13px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--muted)}
+  .pill b{color:var(--green)}
+
+  /* stats */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:0 0 46px}
+  .stat{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px 18px;text-align:center;position:relative;overflow:hidden}
+  .stat::before{content:'';position:absolute;inset:0 0 auto 0;height:2px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);opacity:.6}
+  .stat .n{font-family:var(--mono);font-size:38px;font-weight:800;color:var(--cyan)}
+  .stat .l{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-top:4px}
+  .stat.g .n{color:var(--green)} .stat.y .n{color:var(--yellow)} .stat.p .n{color:var(--purple)}
+
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.16em;color:var(--muted);margin:54px 0 8px;
+    display:flex;align-items:center;gap:10px}
+  h2::before{content:'';width:22px;height:2px;background:var(--cyan);display:inline-block}
+  .lead{color:var(--muted);margin-bottom:22px;max-width:760px}
+
+  /* diagram */
+  .diagram{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:30px 26px;margin-bottom:18px}
+  .repos{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:8px}
+  .repo{border:1px solid var(--border);border-radius:12px;padding:18px;background:var(--surface2)}
+  .repo h3{font-family:var(--mono);font-size:15px;display:flex;align-items:center;gap:8px;margin-bottom:4px}
+  .repo .role{font-size:12.5px;color:var(--muted);margin-bottom:12px}
+  .repo.engine{border-top:2px solid var(--yellow)} .repo.product{border-top:2px solid var(--green)}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .dot.y{background:var(--yellow)} .dot.g{background:var(--green)} .dot.c{background:var(--cyan)}
+  .shimrow{font-family:var(--mono);font-size:11.5px;color:var(--dim);background:#0a121c;border:1px dashed var(--border);
+    border-radius:7px;padding:7px 10px;margin:5px 0;display:flex;justify-content:space-between;align-items:center}
+  .shimrow b{color:var(--text);font-weight:500}
+  .shimrow .arr{color:var(--cyan)}
+  .core{margin-top:18px;border:1px solid var(--cyan);border-radius:12px;padding:18px 18px 8px;
+    background:linear-gradient(180deg,rgba(0,212,255,.07),transparent);position:relative}
+  .core .lbl{position:absolute;top:-11px;left:18px;background:var(--bg);padding:0 10px;font-family:var(--mono);font-size:12px;color:var(--cyan)}
+  .corechips{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+  .chip{font-family:var(--mono);font-size:11.5px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:#0a121c;color:var(--text)}
+  .chip .s{font-size:10px;margin-left:6px;opacity:.8}
+  .chip.both{border-color:rgba(0,212,255,.4)} .chip.engine{border-color:rgba(240,180,41,.4)} .chip.product{border-color:rgba(0,232,122,.4)}
+  .flowdesc{text-align:center;color:var(--dim);font-family:var(--mono);font-size:11px;margin:12px 0 2px}
+
+  /* module grid */
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 17px;position:relative;transition:.15s}
+  .card:hover{border-color:var(--cyan);transform:translateY(-2px)}
+  .card .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:7px}
+  .card .name{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--text)}
+  .card .path{font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:1px}
+  .serve{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.08em;padding:3px 8px;border-radius:5px;white-space:nowrap}
+  .serve.both{color:var(--cyan);background:rgba(0,212,255,.1);border:1px solid rgba(0,212,255,.3)}
+  .serve.engine{color:var(--yellow);background:rgba(240,180,41,.1);border:1px solid rgba(240,180,41,.3)}
+  .serve.product{color:var(--green);background:rgba(0,232,122,.1);border:1px solid rgba(0,232,122,.3)}
+  .card .purpose{font-size:13px;color:var(--muted);margin-bottom:10px;min-height:38px}
+  .card .meta{display:flex;gap:14px;font-family:var(--mono);font-size:11.5px;color:var(--dim);border-top:1px solid var(--border);padding-top:9px}
+  .card .meta b{color:var(--text);font-weight:500}
+  .harm{font-family:var(--mono);font-size:11px;color:var(--purple);margin-top:8px;line-height:1.5}
+
+  /* shim code */
+  pre{background:#0a121c;border:1px solid var(--border);border-radius:11px;padding:18px 20px;overflow-x:auto;
+    font-family:var(--mono);font-size:13px;line-height:1.7;color:var(--text)}
+  .k{color:var(--purple)} .s{color:var(--green)} .c{color:var(--dim)} .f{color:var(--cyan)}
+
+  /* deferred */
+  .deferred{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  .dcard{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--dim);border-radius:10px;padding:14px 16px}
+  .dcard .nm{font-family:var(--mono);font-weight:700;color:var(--text);font-size:14px}
+  .dcard .rs{font-size:12.5px;color:var(--muted);margin-top:5px}
+  .dcard .why{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--yellow);margin-top:8px}
+
+  footer{margin-top:60px;padding-top:24px;border-top:1px solid var(--border);text-align:center;color:var(--dim);font-family:var(--mono);font-size:12px}
+  @media(max-width:760px){.stats,.grid,.deferred,.repos{grid-template-columns:1fr}h1{font-size:38px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="badge">GESH Financial · shared core</div>
+  <h1>gesh-core</h1>
+  <div class="tag">github.com/gesh75/gesh-core · v0.1.0</div>
+  <p class="sub">One installable package that is the single source of truth for the logic the
+    <b style="color:var(--yellow)">engine</b> and <b style="color:var(--green)">product</b> repos used to duplicate —
+    so a fix lands in both at once and drift is structurally impossible.</p>
+  <div class="pill-row">
+    <span class="pill">Python <b>≥3.12</b></span>
+    <span class="pill">deps: <b>numpy + yfinance</b></span>
+    <span class="pill">CI <b>green</b> · 3.12–3.14</span>
+    <span class="pill">install <b>git@v0.1.0</b></span>
+  </div>
+</header>
+
+<div class="stats">
+  <div class="stat"><div class="n">11</div><div class="l">shared modules</div></div>
+  <div class="stat g"><div class="n">121</div><div class="l">parity tests</div></div>
+  <div class="stat y"><div class="n">2</div><div class="l">consumer repos</div></div>
+  <div class="stat p"><div class="n">0</div><div class="l">regressions</div></div>
+</div>
+
+<h2>Two repos, one core</h2>
+<p class="lead">Each consumer keeps a thin <b style="color:var(--cyan)">transparent shim</b> where the module used to
+  live, so every existing import path keeps working unchanged. The real code lives once, in gesh-core.</p>
+<div class="diagram">
+  <div class="repos">
+    <div class="repo engine">
+      <h3><span class="dot y"></span> gesh-project-trading</h3>
+      <div class="role">The <b>engine</b> · port 9003 · internal signal + autonomy-gate accumulator</div>
+      <div class="shimrow"><b>trading/config.py</b><span class="arr">→ shim</span></div>
+      <div class="shimrow"><b>trading/state.py</b><span class="arr">→ shim</span></div>
+      <div class="shimrow"><b>db.py · ecg.py · kelly.py</b><span class="arr">→ shim</span></div>
+    </div>
+    <div class="repo product">
+      <h3><span class="dot g"></span> gesh-project</h3>
+      <div class="role">The <b>product</b> · port 9000 · customer intelligence dashboard</div>
+      <div class="shimrow"><b>trading/config.py</b><span class="arr">→ shim</span></div>
+      <div class="shimrow"><b>trading/state.py</b><span class="arr">→ shim</span></div>
+      <div class="shimrow"><b>db.py · ecg.py · kelly.py</b><span class="arr">→ shim</span></div>
+    </div>
+  </div>
+  <div class="flowdesc">▲  each shim:  sys.modules[__name__] = gesh_core.&lt;module&gt;  ▲</div>
+  <div class="core">
+    <span class="lbl">gesh_core  ·  single source of truth</span>
+    <div class="corechips">
+      <span class="chip both">allocation_config<span class="s">both</span></span>
+      <span class="chip both">ecg<span class="s">both</span></span>
+      <span class="chip both">kelly<span class="s">both</span></span>
+      <span class="chip both">tax_harvester<span class="s">both</span></span>
+      <span class="chip both">db<span class="s">both</span></span>
+      <span class="chip both">trading.contract<span class="s">both</span></span>
+      <span class="chip both">trading.config<span class="s">both</span></span>
+      <span class="chip both">trading.state<span class="s">both</span></span>
+      <span class="chip both">trading.risk_gate_core<span class="s">both</span></span>
+      <span class="chip engine">trading.levels<span class="s">eng</span></span>
+      <span class="chip engine">trading.indicators<span class="s">eng</span></span>
+    </div>
+  </div>
+</div>
+
+<h2>The shim pattern</h2>
+<p class="lead">A full-module alias. Because <code>sys.modules</code> is rebound, <code>import db</code> returns the
+  gesh-core module itself — so attribute access, <code>from</code>-imports, underscore names, <b>and</b> test
+  monkeypatching (<code>monkeypatch.setattr(db, "DB_PATH", tmp)</code>) all reach the one shared namespace.</p>
+<pre><span class="c"># gesh-project-trading/db.py  — and the identical stub in gesh-project</span>
+<span class="k">import</span> sys
+<span class="k">from</span> gesh_core <span class="k">import</span> db <span class="k">as</span> _impl
+sys.modules[__name__] = _impl   <span class="c"># import db  →  the single gesh_core.db</span></pre>
+
+<h2>The 11 modules</h2>
+<p class="lead">Harmonization was decided per module — <b>identical</b>, <b>engine-superset</b>,
+  <b>product-canonical</b>, or a <b>union</b> of both repos' best behavior. Never a blind overwrite.</p>
+<div class="grid" id="mods"></div>
+
+<h2>Database resolution · separate books by design</h2>
+<p class="lead">gesh-core can't use <code>__file__</code> (it points inside the package), so DB paths resolve at
+  call time. <b>Each repo keeps its own <code>gesh_financial.db</code></b> (rule #44 — the engine and product paper
+  books are deliberately separate); only the wash-sale tracker is wired cross-repo.</p>
+<div class="diagram" style="font-family:var(--mono);font-size:13px;line-height:2">
+  <div><span class="f">trading.state · db</span>&nbsp;&nbsp;<span style="color:var(--muted)">GESH_DB_PATH</span> → <span style="color:var(--green)">cwd/gesh_financial.db</span> <span class="c">(per-repo; VirtioFS → /tmp fallback)</span></div>
+  <div><span class="f">tax_harvester</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--muted)">GESH_TRACKER_DB</span> → <span style="color:var(--muted)">GESH_TRADING_HOME</span> → <span style="color:var(--green)">cwd</span> <span class="c">(product wires → engine db)</span></div>
+  <div><span class="f">allocation_config</span>&nbsp;<span style="color:var(--muted)">GESH_CONFIG_PATH</span> → <span style="color:var(--green)">cwd/gesh_config.json</span> <span class="c">(per-repo config)</span></div>
+</div>
+
+<h2>Deliberately per-repo</h2>
+<p class="lead">Not everything should be shared. These stay local <b>by design</b> — they are engine-only, a
+  deliberate policy difference, or genuinely different engines. Documented, not overlooked.</p>
+<div class="deferred" id="def"></div>
+
+<footer>
+  gesh-core · Phase 3 de-drift complete · 2026-06-20 &nbsp;·&nbsp; engine 293 ✓ · product 143 ✓ · core 121 ✓
+</footer>
+</div>
+
+<script>
+const M=[
+ {n:"allocation_config",p:"allocation_config.py",s:"both",pu:"Buying-power caps + scanner settings + the validate_action() trade gate.",d:["–"],c:["paper_trading","server","invest_radar"],loc:282,t:7,h:"identical → cwd-relative config (GESH_CONFIG_PATH)"},
+ {n:"ecg",p:"ecg.py",s:"both",pu:"Equity Curve Gate — drawdown + loss-streak circuit breaker.",d:["–"],c:["consensus","server","crypto_correlation"],loc:158,t:10,h:"product-canonical — streak from equity CHANGES, not percent_change"},
+ {n:"kelly",p:"kelly.py",s:"both",pu:"Kelly-criterion position sizing (continuous + discrete blend).",d:["price_source*"],c:["server","consensus","run_engines2"],loc:238,t:13,h:"union — engine 2y Yahoo fetch + RH fallback + product returns= param"},
+ {n:"tax_harvester",p:"tax_harvester.py",s:"both",pu:"Tax-loss harvesting + 30-day wash-sale window tracker.",d:["–"],c:["server","run_engines2"],loc:278,t:13,h:"env-driven DB resolver (GESH_TRACKER_DB / TRADING_HOME / cwd)"},
+ {n:"db",p:"db.py",s:"both",pu:"SQLite persistence: analysis_runs, equity_snapshots, trade_log.",d:["–"],c:["server","trade_log","market_scanner"],loc:298,t:9,h:"union — connect()+WAL+DDL + corruption-tolerant get_analysis_by_id"},
+ {n:"trading.contract",p:"trading/contract.py",s:"both",pu:"The TradeIntent type — the single signal→gate→exec contract.",d:["–"],c:["risk_gate","execution","autopilot","server"],loc:151,t:13,h:"union — engine source= provenance + product len(symbol)≤12 cap"},
+ {n:"trading.config",p:"trading/config.py",s:"both",pu:"RiskConfig — ultra-conservative, env-overridable risk + mode.",d:["–"],c:["risk_gate","autopilot","execution"],loc:114,t:9,h:"engine-superset (extra gates) + product robust env parsing"},
+ {n:"trading.state",p:"trading/state.py",s:"both",pu:"Execution audit chain: trade_intents → risk_decisions → orders.",d:["–"],c:["risk_gate","execution","autopilot"],loc:327,t:10,h:"union — WAL + job_markers + two-book paper P&L"},
+ {n:"trading.risk_gate_core",p:"trading/risk_gate_core.py",s:"both",pu:"Seam-free gate primitives: GateVerdict + CASH_FLOOR math.",d:["config","contract"],c:["risk_gate","execution"],loc:65,t:7,h:"union — shared GateVerdict + _post_trade_cash_estimate (rule #32)"},
+ {n:"trading.levels",p:"trading/levels.py",s:"engine",pu:"ATR-adaptive stop/target derivation (3×ATR stop / 5×ATR target).",d:["indicators","consensus*"],c:["tracker","autopilot","consensus_shadow"],loc:203,t:7,h:"pure — extracted from tracker.py"},
+ {n:"trading.indicators",p:"trading/indicators.py",s:"engine",pu:"Lightweight equity ATR helper (true-range math, numpy).",d:["–"],c:["levels"],loc:46,t:0,h:"pure — dependency of levels"},
+];
+const D=[
+ {n:"trading.tracker",r:"Engine-only — the autonomy-gate source of truth (paper_positions / paper_outcomes / win-rate / Sharpe). No duplication, no drift.",w:"rules #26 / #44"},
+ {n:"trading.metrics",r:"Engine-only wrapper coupled to tracker (imports _conn, LAUNCH_DATE). Extracting it alone breaks _conn resolution.",w:"tracker-coupled"},
+ {n:"tracker_weekly",r:"Engine-only — weekly burndown + milestone reporting over the engine's paper book.",w:"engine-only"},
+ {n:"risk_gate.evaluate()",r:"Deliberate per-repo gate policy. Engine runs 3 extra gates (SECTOR_CAP / EARNINGS / LOSS_STREAK) + stricter MARKET_REGIME; entangled with each repo's datetime/dep test seams.",w:"intentional divergence"},
+ {n:"consensus",r:"Two genuinely different engines (781 diff lines): engine = 11-node pure/array-injected + regime weights; product = 9-node self-fetching + static weights. See the consensus dashboard.",w:"different engines"},
+];
+const serveLabel={both:"both",engine:"engine",product:"product"};
+document.getElementById('mods').innerHTML=M.map(m=>`
+ <div class="card">
+   <div class="top">
+     <div><div class="name">${m.n}</div><div class="path">${m.p}</div></div>
+     <span class="serve ${m.s}">${serveLabel[m.s]}</span>
+   </div>
+   <div class="purpose">${m.pu}</div>
+   <div class="harm">▸ ${m.h}</div>
+   <div class="meta"><span><b>${m.loc}</b> loc</span><span><b>${m.t}</b> tests</span><span>used by <b>${m.c.length}</b></span></div>
+ </div>`).join('');
+document.getElementById('def').innerHTML=D.map(d=>`
+ <div class="dcard"><div class="nm">${d.n}</div><div class="rs">${d.r}</div><div class="why">${d.w}</div></div>`).join('');
+</script>
+</body>
+</html>

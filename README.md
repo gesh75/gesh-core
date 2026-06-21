@@ -9,6 +9,12 @@ across:
 - **engine** — `~/Projects/gesh-project-trading` (port 9003)
 - **product** — `~/Projects/gesh-project` (port 9000)
 
+## 📊 Docs & diagrams
+
+- **[docs/architecture.html](docs/architecture.html)** — interactive architecture dashboard (module map, shim pattern, DB resolution).
+- **[docs/consensus-comparison.html](docs/consensus-comparison.html)** — engine vs product consensus + convergence roadmap.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CONSENSUS_CONVERGENCE.md](docs/CONSENSUS_CONVERGENCE.md) · [PHASE3_STATUS.md](PHASE3_STATUS.md)
+
 ## Why
 
 A 2026-06-19 audit found 46 duplicated modules, so every fix had to be

@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Consensus · Engine vs Product</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#080d14;--surface:#0d1520;--surface2:#111c2b;--border:#1a2840;
+    --cyan:#00d4ff;--green:#00e87a;--yellow:#f0b429;--red:#ff3c5a;--purple:#a78bfa;
+    --text:#dce6f2;--muted:#7b8ca3;--dim:#4a5a72;--mono:'JetBrains Mono',monospace;--sans:'Inter',system-ui,sans-serif;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.6;
+    background-image:radial-gradient(circle at 80% 0%,rgba(167,139,250,.07),transparent 45%),radial-gradient(circle at 10% 8%,rgba(240,180,41,.05),transparent 45%)}
+  .wrap{max-width:1200px;margin:0 auto;padding:0 22px 90px}
+  code,.mono{font-family:var(--mono)}
+  header{padding:60px 0 30px;text-align:center;border-bottom:1px solid var(--border);margin-bottom:36px}
+  .badge{display:inline-block;font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--purple);
+    border:1px solid var(--border);background:var(--surface);padding:6px 14px;border-radius:999px;margin-bottom:18px}
+  h1{font-size:46px;font-weight:800;letter-spacing:-.02em;background:linear-gradient(90deg,var(--yellow),#fff 50%,var(--green));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{max-width:720px;margin:14px auto 0;color:var(--muted);font-size:16px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.16em;color:var(--muted);margin:52px 0 8px;display:flex;align-items:center;gap:10px}
+  h2::before{content:'';width:22px;height:2px;background:var(--purple);display:inline-block}
+  .lead{color:var(--muted);margin-bottom:20px;max-width:780px}
+
+  /* recommendation banner */
+  .rec{background:linear-gradient(135deg,rgba(0,232,122,.1),rgba(0,212,255,.06));border:1px solid rgba(0,232,122,.35);
+    border-radius:16px;padding:24px 26px;margin-bottom:14px;display:flex;gap:20px;align-items:flex-start}
+  .rec .ic{font-size:30px;line-height:1}
+  .rec h3{font-size:19px;margin-bottom:6px}
+  .rec h3 span{color:var(--green)}
+  .rec p{color:var(--muted);font-size:14.5px}
+  .rec .gate{font-family:var(--mono);font-size:12px;color:var(--yellow);margin-top:10px;border-top:1px solid var(--border);padding-top:10px}
+
+  /* tale of the tape */
+  .tape{display:grid;grid-template-columns:1fr auto 1fr;gap:0;background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:8px}
+  .tape .side{padding:20px 22px}
+  .tape .eng{border-top:3px solid var(--yellow)} .tape .prod{border-top:3px solid var(--green);text-align:right}
+  .tape .vs{display:flex;align-items:center;justify-content:center;font-family:var(--mono);color:var(--dim);font-size:13px;border-left:1px solid var(--border);border-right:1px solid var(--border);padding:0 16px}
+  .tape .who{font-family:var(--mono);font-size:13px;margin-bottom:10px}
+  .tape .eng .who{color:var(--yellow)} .tape .prod .who{color:var(--green)}
+  .tape .big{font-family:var(--mono);font-size:30px;font-weight:800}
+  .tape .row{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12.5px;color:var(--muted);padding:5px 0;border-top:1px solid var(--border);margin-top:6px}
+  .tape .prod .row{flex-direction:row-reverse}
+  .tape .row b{color:var(--text);font-weight:500}
+
+  /* node compare */
+  .nodes{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .ncol h4{font-family:var(--mono);font-size:13px;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+  .ncol.eng h4{color:var(--yellow)} .ncol.prod h4{color:var(--green)}
+  .node{background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:11px 13px;margin-bottom:8px}
+  .node .nm{font-family:var(--mono);font-size:13px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+  .node .w{font-family:var(--mono);font-size:10.5px;color:var(--cyan);white-space:nowrap}
+  .node .src{font-size:11.5px;color:var(--muted);margin-top:3px}
+  .node.only{border-color:rgba(167,139,250,.5);background:linear-gradient(180deg,rgba(167,139,250,.08),transparent)}
+  .node.only .tag{font-family:var(--mono);font-size:9.5px;color:var(--purple);text-transform:uppercase;letter-spacing:.08em}
+  .node.excl{opacity:.55}
+  .node.up .w{color:var(--green)}
+
+  /* diff table */
+  table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+  th{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);text-align:left;padding:12px 14px;border-bottom:1px solid var(--border);background:var(--surface2)}
+  td{padding:12px 14px;font-size:13px;vertical-align:top;border-bottom:1px solid var(--border)}
+  tr:last-child td{border-bottom:none}
+  td.dim{font-family:var(--mono);font-size:12px;color:var(--cyan);font-weight:600;white-space:nowrap}
+  td.e{color:var(--text)} td.p{color:var(--muted)}
+  .colhead.e{color:var(--yellow)} .colhead.p{color:var(--green)}
+
+  /* roadmap */
+  .road{position:relative;padding-left:26px}
+  .road::before{content:'';position:absolute;left:7px;top:6px;bottom:6px;width:2px;background:linear-gradient(180deg,var(--cyan),var(--purple),var(--green))}
+  .ph{position:relative;margin-bottom:16px;background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:14px 16px}
+  .ph::before{content:'';position:absolute;left:-23px;top:18px;width:12px;height:12px;border-radius:50%;background:var(--cyan);border:2px solid var(--bg);box-shadow:0 0 0 2px var(--border)}
+  .ph .h{display:flex;justify-content:space-between;gap:10px;align-items:baseline;margin-bottom:6px}
+  .ph .t{font-family:var(--mono);font-size:14px;font-weight:700;color:var(--text)}
+  .ph .wk{font-family:var(--mono);font-size:11px;color:var(--dim)}
+  .ph .work{font-size:13px;color:var(--muted)}
+  .ph .acc{font-family:var(--mono);font-size:11.5px;color:var(--green);margin-top:8px;border-top:1px solid var(--border);padding-top:7px}
+  .ph .acc b{color:var(--muted);font-weight:400}
+
+  .risks{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .risk{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--red);border-radius:8px;padding:11px 13px;font-size:12.5px;color:var(--muted)}
+  .risk b{color:var(--text);font-family:var(--mono);font-size:12px}
+
+  .note{background:rgba(240,180,41,.08);border:1px solid rgba(240,180,41,.3);border-radius:11px;padding:16px 18px;margin-top:14px;font-size:13.5px;color:var(--muted)}
+  .note b{color:var(--yellow)}
+  footer{margin-top:56px;padding-top:22px;border-top:1px solid var(--border);text-align:center;color:var(--dim);font-family:var(--mono);font-size:12px}
+  @media(max-width:820px){.nodes,.risks,.tape{grid-template-columns:1fr}.tape .vs{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="badge">GESH · consensus engine analysis</div>
+  <h1>Consensus: Engine vs Product</h1>
+  <p class="sub">The one module kept <b>intentionally per-repo</b> — two genuinely different signal engines
+    (781 diff lines). This is the data behind the convergence decision: should the product dashboard adopt the
+    engine's backtest-validated 11-node engine?</p>
+</header>
+
+<h2>Recommendation</h2>
+<div class="rec">
+  <div class="ic">🎯</div>
+  <div>
+    <h3>Phased <span>FULL CONVERGENCE</span> — adopt the engine's 11-node engine in the product, in 7 stages over ~8 weeks</h3>
+    <p>The engine is the proven system: regime-conditional weights validated across 6 assets / 24 months,
+      live Reddit + Macro nodes, and a fetch-once architecture that cuts ~75% of per-symbol yfinance calls
+      (8 → ~3). The product's static-weight, self-fetching, 9-node variant handicaps signal quality and scales
+      poorly. Risk of changing is <b style="color:var(--yellow)">medium</b> (customer verdicts shift on new nodes —
+      explained + staged); risk of not changing is <b style="color:var(--red)">high</b> (drift + signal-quality gap widens).</p>
+    <div class="gate">⚠ Gated decision — this changes customer-facing dashboard signals. The live code cutover proceeds only on your sign-off; this dashboard + plan is the proposal.</div>
+  </div>
+</div>
+
+<h2>Tale of the tape</h2>
+<div class="tape">
+  <div class="side eng">
+    <div class="who">▮ ENGINE · gesh-project-trading</div>
+    <div class="big" style="color:var(--yellow)">11 nodes</div>
+    <div class="row"><span>weights</span><b>dynamic · regime-conditional</b></div>
+    <div class="row"><span>fetch</span><b>once → slice arrays</b></div>
+    <div class="row"><span>news</span><b>live Reddit (VADER)</b></div>
+    <div class="row"><span>macro</span><b>FRED · FFR/curve/OAS/VIX</b></div>
+    <div class="row"><span>role</span><b>autonomy-gate signal source</b></div>
+  </div>
+  <div class="vs">VS</div>
+  <div class="side prod">
+    <div class="who">PRODUCT · gesh-project ▮</div>
+    <div class="big" style="color:var(--green)">9 nodes</div>
+    <div class="row"><span>static NODE_WEIGHTS</span><b>weights</b></div>
+    <div class="row"><span>self-fetch per node (×8)</span><b>fetch</b></div>
+    <div class="row"><span>cached DB sentiment</span><b>news</b></div>
+    <div class="row"><span>— none —</span><b>macro</b></div>
+    <div class="row"><span>customer dashboard</span><b>role</b></div>
+  </div>
+</div>
+
+<h2>Node-by-node</h2>
+<p class="lead">Both share the vote contract (BULLISH +1 / NEUTRAL 0 / BEARISH −1 / ABSTAIN) and identical verdict
+  thresholds. They differ in the node <i>set</i>, the data each node pulls, and how weights are applied.</p>
+<div class="nodes">
+  <div class="ncol eng"><h4>▮ Engine · 11 nodes</h4><div id="eng"></div></div>
+  <div class="ncol prod"><h4>▮ Product · 9 voting nodes</h4><div id="prod"></div></div>
+</div>
+
+<h2>Key architectural differences</h2>
+<table>
+  <thead><tr><th>Dimension</th><th class="colhead e">Engine</th><th class="colhead p">Product</th></tr></thead>
+  <tbody id="diff"></tbody>
+</table>
+
+<h2>What's already shared</h2>
+<div class="note" style="background:rgba(0,232,122,.06);border-color:rgba(0,232,122,.3)">
+  <b style="color:var(--green)">Common ground:</b> identical voting scheme &amp; verdict thresholds
+  (≥0.55 STRONG BUY · ≥0.25 BUY · min 4 active nodes), the weighted tally formula, the
+  <code>(vote, detail)</code> node tuple contract, OpenBB→yfinance fallback on Fundamentals/Analyst,
+  FFT &amp; Kelly excluded from the directional vote, ThreadPoolExecutor for portfolio runs, and
+  ABSTAIN-on-error resilience. Convergence is closing the <i>gap</i>, not rebuilding from zero.
+</div>
+
+<h2>Convergence roadmap · ~8 weeks, 7 stages</h2>
+<p class="lead">Staged so latency wins land first (Phases 1–3) and signal-quality + customer-visible changes
+  (regime weights, live nodes) come later behind validation. Each phase has an explicit acceptance gate.</p>
+<div class="road" id="road"></div>
+
+<h2>Risks to manage</h2>
+<div class="risks" id="risks"></div>
+
+<div class="note">
+  <b>Bottom line:</b> consensus stays per-repo <b>today</b> — it's correct that the two engines differ until a
+  deliberate convergence. This plan makes that convergence a controlled, reversible, acceptance-gated project
+  rather than a silent merge. Greenlight Phase 1 when you want to start.
+</div>
+
+<footer>gesh-core · consensus analysis · code-verified 2026-06-21 · engine 844 LOC vs product 487 LOC · 781 diff lines</footer>
+</div>
+
+<script>
+const ENG=[
+ {n:"Momentum",w:"1.5 ↗ regime",s:"RSI-14 + MA20/50 cross · 90d (sliced array)"},
+ {n:"Trend",w:"2.0 ↗ regime",s:"ADX + Bollinger %B + RSI · 60d OHLC"},
+ {n:"Rel.Strength",w:"2.0",s:"1M return vs SPY (pre-fetched)"},
+ {n:"Fundamentals",w:"0.75 → 1.25",s:"OpenBB → yfinance → Robinhood tertiary"},
+ {n:"Analyst",w:"0.5",s:"OpenBB estimates → yfinance → RH"},
+ {n:"News",w:"0.25",s:"LIVE Reddit sentiment (VADER + upvote), 90min cache",up:1},
+ {n:"Kelly",w:"sizing only",s:"from pre-computed 90d returns array"},
+ {n:"ECG",w:"0.5",s:"drawdown + loss streak (30d snapshots)"},
+ {n:"Volume",w:"1.5",s:"10d vs 30d volume trend · 45d"},
+ {n:"FFT_Cycle",w:"excluded",s:"dominant cycle phase · ≥60 bars",excl:1},
+ {n:"Macro",w:"0.75",s:"FRED FFR + 10Y-2Y curve + HY OAS + VIX · 6h cache",only:1},
+];
+const PROD=[
+ {n:"Momentum",w:"1.5 static",s:"RSI-14 + MA20/50 · self-fetches 90d"},
+ {n:"Trend",w:"2.0 static",s:"ADX + Bollinger %B + RSI · self-fetches 60d"},
+ {n:"Rel.Strength",w:"2.0 static",s:"1M return vs SPY · batch self-fetch"},
+ {n:"Fundamentals",w:"0.75 static",s:"OpenBB → yfinance (no RH tertiary)"},
+ {n:"Analyst",w:"0.5 static",s:"OpenBB → yfinance (no RH tertiary)"},
+ {n:"News",w:"0.25 static",s:"cached DB sentiment only · 7d lookback"},
+ {n:"Kelly",w:"sizing only",s:"kelly_size_holding(symbol) · returns= optional"},
+ {n:"ECG",w:"0.5 static",s:"drawdown + streak · 30d"},
+ {n:"Volume",w:"1.5 static",s:"10d vs 30d ratio · self-fetches 45d"},
+ {n:"FFT_Cycle",w:"excluded",s:"self-fetches · excluded from vote",excl:1},
+];
+const DIFF=[
+ {d:"Fetch architecture",e:"Pre-fetches 252d OHLCV ONCE per symbol, slices arrays to each node — ~3 calls/symbol.",p:"Each node self-fetches independently — ~8 HTTP calls per holding."},
+ {d:"Weights",e:"Dynamic _regime_weights(symbol) — detect_regimes() per run, 4 backtest-validated profiles.",p:"Static NODE_WEIGHTS dict literal. No regime detection."},
+ {d:"Node set",e:"11 nodes incl. live Reddit News + FRED Macro.",p:"9 voting nodes — no live Reddit, no Macro."},
+ {d:"Fetch infra",e:"_yf_download_with_retry: 3 attempts, backoff + jitter, 401 reset, Robinhood fallback.",p:"price_source.yf_download delegate — no visible retry in consensus."},
+ {d:"Fundamentals/Analyst fallback",e:"OpenBB → yfinance → Robinhood tertiary.",p:"OpenBB → yfinance. Stops there (no RH)."},
+ {d:"News node",e:"Live Reddit (VADER + upvote-weighting), DB fallback.",p:"Cached DB news_sentiment only; ABSTAIN if no row."},
+ {d:"Macro node",e:"node_macro — FFR / yield curve / OAS / VIX, 6h cache.",p:"Absent entirely."},
+ {d:"Return dict",e:"Canonical + legacy aliases (score / nodes_voted / node_results).",p:"Canonical keys only (raw_score / active_nodes / details)."},
+ {d:"Price reuse",e:"One fetch → sliced across nodes (single source of truth).",p:"No cross-node sharing; arrays local to each node."},
+];
+const ROAD=[
+ {t:"Phase 1 · Dependency & infra",wk:"wk 1–2",work:"Port _yf_download_with_retry + RH fallback + TTL caches into product; verify price_source / sentiment_connector / macro_connector import cleanly.",acc:"all three connectors import; _fetch_ohlcv returns 252d with retry."},
+ {t:"Phase 2 · Node signature migration",wk:"wk 2–3",work:"Convert product nodes to accept optional pre-fetched arrays (node_momentum(symbol, close=None)…) keeping self-fetch as fallback.",acc:"all 11 node fns accept arrays; run_consensus_holding(symbol) still works with none passed."},
+ {t:"Phase 3 · Pre-fetch & slicing",wk:"wk 3–4",work:"Rewrite run_consensus_holding to fetch 252d ONCE + spy_close once; slice to each node.",acc:"1 download per symbol (verify via log); ~75% fewer calls."},
+ {t:"Phase 4 · Regime-conditional weights",wk:"wk 4–5",work:"Port _regime_weights + detect_regimes; cache 30min; override NODE_WEIGHTS per regime.",acc:"detect_regimes once/symbol cached; weights adjust per regime, validated vs engine."},
+ {t:"Phase 5 · Live Reddit + Macro",wk:"wk 5–6",work:"Replace cached-DB News with live Reddit (90min, DB fallback); add node_macro as Node 11.",acc:"News returns live Reddit when available; Macro participates or ABSTAINs cleanly."},
+ {t:"Phase 6 · Testing & validation",wk:"wk 6–7",work:"Unit-test 11 nodes with mock arrays; 20-symbol integration vs engine; verdict parity check.",acc:"verdicts match engine within ±0.05 raw_score (or 1-node margin)."},
+ {t:"Phase 7 · Dashboard & deploy",wk:"wk 7–8",work:"Add Macro card + regime/weights breakdown to the consensus UI; profile + staged production rollout.",acc:"all 11 nodes render; runtime <15s / 10 holdings (was ~30s)."},
+];
+const RISKS=[
+ "Customer-facing verdicts shift — new Macro (bearish on inverted curve / high VIX) + live Reddit can flip historical signals. Mitigate: explain + stage.",
+ "Macro dependency — FRED / fredapi or API key absent in product env → Macro always ABSTAIN, confidence drops.",
+ "Reddit connector — praw + nltk + credentials needed; must fall back to cached DB gracefully.",
+ "Cache TTL misalignment — _SPY_CACHE / _REGIME_LABEL_CACHE shared keys, different TTLs (30m vs 6h).",
+ "ECG signature mismatch — engine (_compute_drawdown_from_peak/_loss_streak/_classify) vs product (_drawdown/_streak/_gate_status).",
+ "Confidence denominator — active_nodes / len(NODE_WEIGHTS) shifts 9 → 11; ensure parity.",
+ "Regime detection latency — detect_regimes per symbol; cache 30min or runtime balloons.",
+ "Fetch-timestamp delta — engine at T vs product at T+5s moves prices ±0.02 raw_score; accept tolerance.",
+];
+const nd=a=>a.map(x=>`<div class="node ${x.only?'only':''} ${x.excl?'excl':''} ${x.up?'up':''}">
+  <div class="nm"><span>${x.only?'<span class="tag">product is missing → </span>':''}${x.n}</span><span class="w">${x.w}</span></div>
+  <div class="src">${x.s}</div></div>`).join('');
+document.getElementById('eng').innerHTML=nd(ENG);
+document.getElementById('prod').innerHTML=nd(PROD);
+document.getElementById('diff').innerHTML=DIFF.map(r=>`<tr><td class="dim">${r.d}</td><td class="e">${r.e}</td><td class="p">${r.p}</td></tr>`).join('');
+document.getElementById('road').innerHTML=ROAD.map(p=>`<div class="ph"><div class="h"><span class="t">${p.t}</span><span class="wk">${p.wk}</span></div><div class="work">${p.work}</div><div class="acc"><b>accept →</b> ${p.acc}</div></div>`).join('');
+document.getElementById('risks').innerHTML=RISKS.map(r=>{const i=r.indexOf(' — ');return `<div class="risk"><b>${i>0?r.slice(0,i):'Risk'}</b>${i>0?' — '+r.slice(i+3):' '+r}</div>`}).join('');
+</script>
+</body>
+</html>
