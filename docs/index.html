@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>gesh-core · docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#080d14;--surface:#0d1520;--border:#1a2840;--cyan:#00d4ff;--green:#00e87a;--yellow:#f0b429;--purple:#a78bfa;
+    --text:#dce6f2;--muted:#7b8ca3;--dim:#4a5a72;--mono:'JetBrains Mono',monospace;--sans:'Inter',system-ui,sans-serif;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:40px 22px;
+    background-image:radial-gradient(circle at 20% 0%,rgba(0,212,255,.08),transparent 45%),radial-gradient(circle at 85% 100%,rgba(0,232,122,.06),transparent 45%)}
+  .wrap{max-width:880px;width:100%}
+  .badge{display:inline-block;font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan);
+    border:1px solid var(--border);background:var(--surface);padding:6px 14px;border-radius:999px;margin-bottom:20px}
+  h1{font-size:60px;font-weight:800;letter-spacing:-.02em;background:linear-gradient(90deg,#fff,var(--cyan) 55%,var(--green));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .tag{font-family:var(--mono);color:var(--muted);margin:8px 0 6px;font-size:14px}
+  .sub{color:var(--muted);font-size:17px;max-width:600px;margin-bottom:14px}
+  .pills{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:34px}
+  .pill{font-family:var(--mono);font-size:12px;padding:6px 13px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--muted)}
+  .pill b{color:var(--green)}
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  a.card{display:block;text-decoration:none;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:26px;transition:.16s;position:relative;overflow:hidden}
+  a.card:hover{transform:translateY(-3px);border-color:var(--cyan)}
+  a.card::before{content:'';position:absolute;inset:0 0 auto 0;height:3px;background:linear-gradient(90deg,var(--cyan),var(--green))}
+  a.card.b::before{background:linear-gradient(90deg,var(--yellow),var(--purple))}
+  .ic{font-size:30px;margin-bottom:12px}
+  a.card h2{color:var(--text);font-size:21px;font-weight:700;margin-bottom:8px}
+  a.card p{color:var(--muted);font-size:14px;margin-bottom:14px}
+  .go{font-family:var(--mono);font-size:13px;color:var(--cyan)}
+  a.card.b .go{color:var(--purple)}
+  .links{margin-top:28px;font-family:var(--mono);font-size:13px;color:var(--dim);display:flex;gap:18px;flex-wrap:wrap}
+  .links a{color:var(--muted);text-decoration:none}.links a:hover{color:var(--cyan)}
+  @media(max-width:680px){.cards{grid-template-columns:1fr}h1{font-size:42px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="badge">GESH Financial · shared core</div>
+  <h1>gesh-core</h1>
+  <div class="tag">single source of truth · v0.1.0 · CI green</div>
+  <p class="sub">The package that de-duplicates the GESH engine and product repos — 11 shared modules,
+    121 parity tests, drift made structurally impossible.</p>
+  <div class="pills">
+    <span class="pill"><b>11</b> modules</span>
+    <span class="pill"><b>121</b> tests</span>
+    <span class="pill"><b>2</b> repos</span>
+    <span class="pill"><b>0</b> regressions</span>
+  </div>
+  <div class="cards">
+    <a class="card" href="architecture.html">
+      <div class="ic">🧩</div>
+      <h2>Architecture</h2>
+      <p>Module map, the transparent shim pattern, database resolution, and the deliberately-per-repo set.</p>
+      <span class="go">Open dashboard →</span>
+    </a>
+    <a class="card b" href="consensus-comparison.html">
+      <div class="ic">⚖️</div>
+      <h2>Consensus: Engine vs Product</h2>
+      <p>The 11-node vs 9-node comparison and the staged convergence roadmap (proposal, sign-off gated).</p>
+      <span class="go">Open dashboard →</span>
+    </a>
+  </div>
+  <div class="links">
+    <a href="ARCHITECTURE.md">ARCHITECTURE.md</a>
+    <a href="CONSENSUS_CONVERGENCE.md">CONSENSUS_CONVERGENCE.md</a>
+    <a href="https://github.com/gesh75/gesh-core">repo ↗</a>
+  </div>
+</div>
+</body>
+</html>
