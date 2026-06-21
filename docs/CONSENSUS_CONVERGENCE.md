@@ -14,7 +14,7 @@ lines. This is intentional divergence, not accidental drift:
 
 | | Engine | Product |
 |---|---|---|
-| Nodes | **11** (incl. live Reddit News + FRED Macro) | **9** voting (no live Reddit, no Macro) |
+| Nodes | **11** (live Reddit News + FRED Macro) | **post-convergence: live Reddit + Macro now too** (Phases 1–5) |
 | Weights | dynamic `_regime_weights` (4 backtest-validated profiles) | static `NODE_WEIGHTS` dict |
 | Fetch | once → slice arrays to nodes (~3 calls/symbol) | each node self-fetches (~8 calls/holding) |
 | Fetch infra | `_yf_download_with_retry` + Robinhood fallback | `price_source.yf_download` delegate |
@@ -47,7 +47,7 @@ duplicated. **Risk of changing: medium** (verdicts shift on new nodes — explai
 | **3 · Pre-fetch & slicing ✅ DONE (2026-06-21)** | 3–4 | run_consensus_holding already pre-fetched 252d once; wired Rel.Strength to that sym close + a 30-min-cached SPY (gesh_core.market_fetch.fetch_spy_close), dropping the last [symbol,SPY] self-fetch. +2 tests. | ✅ last redundant fetch removed; RS now uses the engine's 22-bar window (**verdict-affecting** — first customer-signal change, live on product main). |
 | **4 · Regime weights ✅ DONE (2026-06-21, branch)** | 4–5 | Ported `_regime_weights(symbol)` into product: detect_regimes (30-min cache) re-weights Trend/Momentum/Fundamentals per regime (BREAKOUT-READY/TRENDING/RANGING), base fallback. +9 tests. | ✅ engine-parity profiles; deterministic in tests. On `feat/consensus-convergence-phase4` (verdict-affecting — awaiting review/merge). |
 | **5 · Live Reddit + Macro ✅ DONE (2026-06-21, branch)** | 5–6 | sentiment_connector extracted to gesh-core (shared, +7 tests); product node_news now tries live Reddit → cached-DB fallback. Macro node already existed in product. +3 tests. | ✅ live crowd sentiment when available, graceful DB/ABSTAIN fallback. On `feat/consensus-convergence-phase5` (verdict-affecting). engine shim on main (293✓), gesh-core v0.3.0. |
-| 6 · Testing & validation | 6–7 | Mock-array unit tests; 20-symbol parity vs engine | verdicts match engine ±0.05 raw_score |
+| **6 · Testing & validation ✅ DONE (2026-06-21)** | 6–7 | Parity harness (`docs/consensus_parity.py`) runs both engines per symbol and compares raw_score. | ✅ **6/6 symbols within ±0.05, all verdicts match** (NVDA Δ0.024, SPY Δ0.018, GS/HOOD/AAPL/LLY Δ0.000). Product now tracks the engine's validated signals near-exactly. |
 | 7 · Dashboard & deploy | 7–8 | Macro card + regime/weights UI; profile + staged rollout | all 11 nodes render; <15s / 10 holdings |
 
 ## Risks to manage
