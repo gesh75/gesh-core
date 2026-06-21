@@ -1,5 +1,7 @@
 # gesh-core
 
+[![CI](https://github.com/gesh75/gesh-core/actions/workflows/ci.yml/badge.svg)](https://github.com/gesh75/gesh-core/actions/workflows/ci.yml)
+
 Shared core package for the GESH Financial two-repo system. It is the single
 source of truth for modules that were previously duplicated (and drifting)
 across:
