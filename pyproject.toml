@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gesh-core"
-version = "0.2.0"
+version = "0.3.0"
 description = "Shared core modules for the GESH Financial engine and product repos (de-duplication / drift control)."
 requires-python = ">=3.12"
 # Direct third-party imports across the extracted modules:
@@ -19,7 +19,11 @@ requires-python = ">=3.12"
 dependencies = [
     "numpy>=1.26",
     "yfinance>=0.2",
+    "requests>=2.28",
 ]
+# sentiment_connector additionally uses praw (Reddit API) + nltk VADER when
+# present, but both are OPTIONAL — it degrades to the Reddit JSON API + keyword
+# scoring via `requests`, so they are intentionally NOT hard dependencies.
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
