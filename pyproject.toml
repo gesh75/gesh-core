@@ -9,13 +9,14 @@ description = "Shared core modules for the GESH Financial engine and product rep
 requires-python = ">=3.12"
 # Direct third-party imports across the extracted modules:
 #   numpy    — ecg, kelly, trading.indicators (module-level)
-#   yfinance — kelly._fetch_returns + trading.levels._fetch_atr (kelly imports it
-#              at module top, so it must be a hard dep; pandas comes transitively).
-# NOTE: kelly._fetch_returns and trading.levels._fetch_atr also do a lazy
-# `import price_source` and `from consensus import ...`. Those are HOST-PROVIDED
-# in-repo modules (engine/product), resolved against the running process's
-# sys.path; they are intentionally NOT declarable here and degrade gracefully
-# when absent.
+#   yfinance — kelly._fetch_returns (module-top import → hard dep); market_fetch
+#              (used by kelly + trading.levels._fetch_atr). pandas comes transitively.
+#   requests — sentiment_connector (Reddit JSON API; praw/nltk optional, lazy).
+# NOTE: kelly._fetch_returns still does a lazy `import price_source` (a HOST-PROVIDED
+# in-repo module, engine/product), resolved against the running process's sys.path —
+# intentionally NOT declarable here, and it degrades gracefully when absent.
+# (trading.levels._fetch_atr no longer touches the host consensus/price_source — it
+# uses the shared gesh_core.market_fetch instead, as of v0.3.1.)
 dependencies = [
     "numpy>=1.26",
     "yfinance>=0.2",
