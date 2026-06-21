@@ -107,45 +107,24 @@ def _fetch_atr(symbol: str) -> float | None:
 
     try:
         from .indicators import atr as _atr_fn
+        # Use the shared market_fetch helper: yf.download (period="1y", which Yahoo
+        # accepts reliably — the old "2mo" string + yf.Ticker().history fallback
+        # intermittently 401'd and silently degraded ATR stops to flat) with the
+        # same retry + Robinhood fallback. Returns clean numpy arrays.
+        from gesh_core.market_fetch import fetch_ohlcv  # noqa: PLC0415
 
-        # Use the consensus retry wrapper: it clears Yahoo's crumb on 401 AND
-        # falls back to Robinhood OHLCV. A raw yf.Ticker().history here silently
-        # 401s under the autopilot's parallel load and degrades ATR stops to flat
-        # stops invisibly (Flash #4). Falls back to a direct fetch if unavailable.
-        df = None
-        try:
-            from consensus import _yf_download_with_retry  # noqa: PLC0415
-            df = _yf_download_with_retry(symbol, period="2mo", interval="1d", auto_adjust=True)
-        except Exception:
-            df = None
-        if df is None or getattr(df, "empty", True):
-            import yfinance as yf  # noqa: PLC0415
-            for attempt in range(3):
-                try:
-                    df = yf.Ticker(symbol).history(period="2mo", interval="1d")
-                    if df is not None and not df.empty:
-                        break
-                except Exception:
-                    df = None
-                if attempt < 2:
-                    time.sleep(1.0 * (attempt + 1))
-
-        if df is None or df.empty or len(df) < EQUITY_ATR_PERIOD + 1:
+        o = fetch_ohlcv(symbol, period_days=60)
+        if not o or len(o.get("close", [])) < EQUITY_ATR_PERIOD + 1:
             _log.info("ATR %s: fell back to flat stop (no/thin bars)", symbol)
             return None
 
-        a = _atr_fn(
-            df["High"].to_numpy(),
-            df["Low"].to_numpy(),
-            df["Close"].to_numpy(),
-            EQUITY_ATR_PERIOD,
-        )
+        a = _atr_fn(o["high"], o["low"], o["close"], EQUITY_ATR_PERIOD)
         if a is None:
             _log.info("ATR %s: fell back to flat stop (ATR computed None)", symbol)
             return None
 
         _ATR_CACHE[key] = a
-        last_close = float(df["Close"].iloc[-1])
+        last_close = float(o["close"][-1])
         _log.info(
             "ATR %s: %.4f (%.2f%% of close) -> adaptive stop",
             symbol, a, (100.0 * a / last_close) if last_close else 0.0,
