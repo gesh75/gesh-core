@@ -54,6 +54,14 @@ class RiskConfig:
     max_orders_per_day: int = 3
     min_cash_buffer_usd: float = 500.0
     min_confidence: float = 0.75
+    # Entry-conviction floor on the consensus raw_score for NEW long entries
+    # (portfolio path). confidence (active_nodes / total) is ≈1.0 in practice and a
+    # weak quality lever; raw_score is the real conviction signal. 0.35 filters the
+    # weakest BUYs (verdict BUY fires at ≥0.25) while keeping solid BUYs + STRONG BUYs
+    # (≥0.55), preserving entry velocity toward the n=30 autonomy gate. Entries only —
+    # never gates SELL/exit. Env MIN_ENTRY_SCORE; set 0.0 to disable, 0.55 for
+    # STRONG-BUY-only. (2026-06-21, P2 entry conviction.)
+    min_entry_score: float = 0.35
     # Simulated cash balance used by the CASH_FLOOR gate in PAPER mode only, so paper
     # trades aren't blocked by the real (often near-empty, fully-invested) account
     # balance. In LIVE mode the real account cash is used instead. (Mirrors the
@@ -99,6 +107,7 @@ def load_risk_config() -> RiskConfig:
         max_orders_per_day=_env_int("MAX_ORDERS_PER_DAY", 3),
         min_cash_buffer_usd=_env_float("MIN_CASH_BUFFER_USD", 500.0),
         min_confidence=_env_float("MIN_CONFIDENCE", 0.75),
+        min_entry_score=_env_float("MIN_ENTRY_SCORE", 0.35),
         paper_cash_usd=_env_float("PAPER_CASH_USD", 100_000.0),
         max_price_age_seconds=_env_int("MAX_PRICE_AGE_SECONDS", 300),
         max_price_age_seconds_paper=_env_int("MAX_PRICE_AGE_SECONDS_PAPER", 1800),
