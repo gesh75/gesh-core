@@ -42,7 +42,7 @@ duplicated. **Risk of changing: medium** (verdicts shift on new nodes — explai
 
 | Phase | Weeks | Work | Acceptance gate |
 |---|---|---|---|
-| 1 · Dependency & infra | 1–2 | Port retry fetch + RH fallback + TTL caches; verify connectors import | connectors import; `_fetch_ohlcv` returns 252d w/ retry |
+| **1 · Dependency & infra ✅ DONE (2026-06-21)** | 1–2 | Shared fetch infra extracted to **`gesh_core.market_fetch`** (`yf_download_with_retry` + `fetch_ohlcv` + `fetch_spy_close`, retry + RH fallback + 30-min SPY cache) instead of copy-pasting into product. 8 tests. | ✅ product imports market_fetch + macro_connector + fundamentals_openbb cleanly; `fetch_ohlcv` returns 252d w/ retry. `sentiment_connector` deferred to Phase 5 (live-Reddit dep). |
 | 2 · Node signatures | 2–3 | Nodes accept optional pre-fetched arrays, self-fetch as fallback | all 11 nodes accept arrays; no-arg call still works |
 | 3 · Pre-fetch & slicing | 3–4 | Fetch 252d + spy_close ONCE, slice to nodes | 1 download/symbol; ~75% fewer calls |
 | 4 · Regime weights | 4–5 | Port `_regime_weights` + `detect_regimes` (30min cache) | weights adjust per regime, validated vs engine |
