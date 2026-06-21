@@ -1,0 +1,50 @@
+name: CI
+
+# Verify gesh-core installs cleanly from a fresh checkout and its parity tests
+# pass — the single source of truth for the engine + product repos.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package + test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[test]"
+
+      - name: Import every module (proves the package is self-contained)
+        run: |
+          python - <<'PY'
+          import importlib
+          mods = [
+              "gesh_core", "gesh_core.allocation_config", "gesh_core.ecg",
+              "gesh_core.kelly", "gesh_core.tax_harvester", "gesh_core.db",
+              "gesh_core.trading.contract", "gesh_core.trading.indicators",
+              "gesh_core.trading.levels", "gesh_core.trading.config",
+              "gesh_core.trading.state", "gesh_core.trading.risk_gate_core",
+          ]
+          for m in mods:
+              importlib.import_module(m)
+          print("imported", len(mods), "modules OK")
+          PY
+
+      - name: Run tests
+        run: pytest -q
