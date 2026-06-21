@@ -9,4 +9,13 @@
 | [../PHASE3_STATUS.md](../PHASE3_STATUS.md) | Phase-by-phase extraction log. |
 
 The HTML dashboards are single self-contained files (one Google-Fonts link) in the GESH dark
-theme. View locally with any browser, or `python3 -m http.server` from this directory.
+theme. **Kept local / private — not published** (gesh-core holds internal trading IP).
+
+### View locally
+
+```bash
+./docs/serve.sh          # → http://127.0.0.1:8090/   (landing → both dashboards)
+./docs/serve.sh 9001     # custom port
+```
+
+Or just open `docs/index.html` in a browser directly.
