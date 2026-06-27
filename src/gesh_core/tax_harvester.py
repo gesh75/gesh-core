@@ -27,10 +27,32 @@ DB table (auto-created in gesh_financial.db)
 from __future__ import annotations
 
 import sqlite3
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
+from decimal import ROUND_HALF_UP, Decimal
 import os
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+
+
+# ─── Money (M4) ───────────────────────────────────────────────────────────────
+# This is a tax ledger of record (wash-sale loss tracking), so monetary math runs
+# in Decimal quantized to cents — float drift must not accumulate across summed
+# losses. Inputs arrive as floats from the broker; Decimal(str(x)) takes their
+# decimal repr (not the binary-dust expansion). Values are converted back to float
+# only at the boundary for JSON/SQLite, already rounded to the cent.
+_CENTS = Decimal("0.01")
+
+
+def _money(x: Any) -> Decimal:
+    """Coerce a float/int/str to an exact Decimal via its decimal repr."""
+    return Decimal(str(x or 0))
+
+
+def _cents(d: Decimal) -> float:
+    """Quantize a Decimal to cents and return a float for storage/serialization."""
+    return float(d.quantize(_CENTS, rounding=ROUND_HALF_UP))
 
 
 # ─── Config ───────────────────────────────────────────────────────────────────
@@ -79,10 +101,24 @@ def _db_path() -> Path:
         return _FALLBACK_DB
 
 
-def _get_conn() -> sqlite3.Connection:
+@contextmanager
+def _get_conn() -> Iterator[sqlite3.Connection]:
+    """Open a tracker-DB connection, commit on success, and ALWAYS close.
+
+    sqlite3's own connection context manager commits/rolls back but never
+    closes, so the previous ``with _get_conn() as conn:`` pattern leaked a
+    handle on every call — accumulating across each autopilot tax scan. This
+    wrapper guarantees the connection is closed in ``finally`` (matching
+    db.py / trading.state). Callers may still call ``conn.commit()`` explicitly;
+    the redundant commit here is harmless.
+    """
     conn = sqlite3.connect(str(_db_path()), timeout=10)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # ─── Schema ───────────────────────────────────────────────────────────────────
@@ -201,21 +237,25 @@ def scan_tax_loss_candidates(
             })
             continue
         cb = float(_cb)
-        unrealised = (price - cb) * shares
+        # Cent-precise loss in Decimal — float drift must not accumulate in the
+        # summed harvestable total (M4).
+        unrealised_d = ((_money(price) - _money(cb)) * _money(shares)).quantize(
+            _CENTS, rounding=ROUND_HALF_UP
+        )
         unrealised_pct = ((price - cb) / cb * 100) if cb > 0 else 0.0
 
-        if unrealised >= 0:
+        if unrealised_d >= 0:
             continue   # profitable position — skip
 
         wash = get_wash_status(ticker)
-        loss_abs = abs(unrealised)
+        loss_abs_d = -unrealised_d   # positive Decimal
 
         record: dict[str, Any] = {
             "ticker":               ticker,
             "current_price":        round(price, 4),
             "cost_basis":           round(cb, 4),
             "shares":               round(shares, 4),
-            "unrealised_loss_usd":  round(-loss_abs, 2),
+            "unrealised_loss_usd":  float(unrealised_d),
             "unrealised_loss_pct":  round(unrealised_pct, 2),
             "in_wash_window":       wash["in_wash_window"],
             "wash_safe_date":       wash["wash_safe_date"],
@@ -224,7 +264,7 @@ def scan_tax_loss_candidates(
 
         if wash["in_wash_window"]:
             record["status"] = "IN_WASH_WINDOW"
-        elif loss_abs >= min_loss_usd:
+        elif loss_abs_d >= _money(min_loss_usd):
             record["status"] = "ELIGIBLE"
         else:
             record["status"] = "BELOW_THRESHOLD"
@@ -244,9 +284,12 @@ def get_harvest_summary(
     eligible   = [c for c in candidates if c["status"] == "ELIGIBLE"]
     in_window  = [c for c in candidates if c["status"] == "IN_WASH_WINDOW"]
     no_basis   = [c for c in candidates if c["status"] == "NO_COST_BASIS"]
-    total_harvestable = sum(abs(c["unrealised_loss_usd"]) for c in eligible)
+    # Sum in Decimal so the harvestable total is exact to the cent (M4).
+    total_harvestable = sum(
+        (_money(c["unrealised_loss_usd"]).copy_abs() for c in eligible), Decimal(0)
+    )
     return {
-        "total_harvestable_loss_usd": round(total_harvestable, 2),
+        "total_harvestable_loss_usd": _cents(total_harvestable),
         "eligible_count":            len(eligible),
         "in_wash_window_count":      len(in_window),
         "no_cost_basis_count":       len(no_basis),
