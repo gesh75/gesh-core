@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from gesh_core.trading import contract
-from gesh_core.trading.contract import TradeIntent, manual, from_consensus
+from gesh_core.trading.contract import TradeIntent, from_consensus, manual
 
 
 def test_module_loads_from_gesh_core():

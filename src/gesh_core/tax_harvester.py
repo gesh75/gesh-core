@@ -26,15 +26,14 @@ DB table (auto-created in gesh_financial.db)
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import contextmanager
-from datetime import date, datetime, timedelta, timezone
-from decimal import ROUND_HALF_UP, Decimal
 import os
+import sqlite3
 from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import UTC, date, datetime, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
-
 
 # ─── Money (M4) ───────────────────────────────────────────────────────────────
 # This is a tax ledger of record (wash-sale loss tracking), so monetary math runs
@@ -296,7 +295,7 @@ def get_harvest_summary(
         "eligible":                  eligible,
         "in_wash_window":            in_window,
         "no_cost_basis":             no_basis,
-        "generated_at":              datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+        "generated_at":              datetime.now(UTC).replace(tzinfo=None).isoformat(),
         "summary": (
             f"Tax harvest: ${total_harvestable:,.0f} eligible across "
             f"{len(eligible)} position(s). "

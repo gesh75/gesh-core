@@ -44,12 +44,12 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
-import json
 import re
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -126,8 +126,8 @@ def _cache_valid(symbol: str) -> bool:
         # aware/naive subtraction never raises — a freshly written aware entry
         # must still read back as valid.
         if fetched.tzinfo is None:
-            fetched = fetched.replace(tzinfo=timezone.utc)
-        return (datetime.now(timezone.utc) - fetched).total_seconds() < CACHE_TTL_M * 60
+            fetched = fetched.replace(tzinfo=UTC)
+        return (datetime.now(UTC) - fetched).total_seconds() < CACHE_TTL_M * 60
     except Exception as e:  # noqa: BLE001 — cache check is best-effort; stale → refetch
         logger.debug("sentiment cache validity check failed for %s: %s", symbol, e)
         return False
@@ -196,7 +196,7 @@ def _fetch_praw(symbol: str) -> list[dict]:
         return []
     cid = _ENV.get("REDDIT_CLIENT_ID")
     csec = _ENV.get("REDDIT_CLIENT_SECRET")
-    ua   = _ENV.get("REDDIT_USER_AGENT", f"gesh-financial/1.0")
+    ua   = _ENV.get("REDDIT_USER_AGENT", "gesh-financial/1.0")
     if not cid or not csec:
         return []
     try:
@@ -304,7 +304,7 @@ def get_reddit_sentiment(symbol: str, force_refresh: bool = False) -> dict[str, 
         "top_sources":     [],
         "data_source":     "unavailable",
         "summary":         f"## Reddit Sentiment ({sym})\n  • No data available",
-        "fetched_at":      datetime.now(timezone.utc).isoformat(),
+        "fetched_at":      datetime.now(UTC).isoformat(),
     }
 
     # Try praw first, fall back to JSON API
@@ -360,7 +360,7 @@ def get_reddit_sentiment(symbol: str, force_refresh: bool = False) -> dict[str, 
     else:
         overall = "NEUTRAL"
 
-    top_sources = sorted(source_counts, key=source_counts.get, reverse=True)[:3]
+    top_sources = sorted(source_counts, key=lambda s: source_counts[s], reverse=True)[:3]
 
     result.update({
         "post_count":      n,
@@ -413,8 +413,10 @@ def node_sentiment(symbol: str) -> tuple[int | None, str]:
             f"Posts={n} Bull={bull:.0f}% Bear={bear:.0f}%"
         )
 
-        if overall == "BULLISH":   return VOTE_BULLISH, detail
-        if overall == "BEARISH":   return VOTE_BEARISH, detail
+        if overall == "BULLISH":
+            return VOTE_BULLISH, detail
+        if overall == "BEARISH":
+            return VOTE_BEARISH, detail
         return VOTE_NEUTRAL, detail
 
     except Exception as e:

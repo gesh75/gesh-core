@@ -11,8 +11,8 @@ Inputs per holding: price history (90d), analyst upside, current allocation
 import logging
 import os
 
-import yfinance as yf
 import numpy as np
+import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
@@ -171,9 +171,12 @@ def _discrete_kelly(returns: np.ndarray, threshold: float = 0.0) -> dict:
 
 def _volatility_score(returns: np.ndarray) -> str:
     ann_vol = float(np.std(returns)) * np.sqrt(252) * 100
-    if ann_vol < 30:  return "LOW"
-    if ann_vol < 60:  return "MEDIUM"
-    if ann_vol < 100: return "HIGH"
+    if ann_vol < 30:
+        return "LOW"
+    if ann_vol < 60:
+        return "MEDIUM"
+    if ann_vol < 100:
+        return "HIGH"
     return "EXTREME"
 
 def _max_drawdown(returns: np.ndarray) -> float:
@@ -323,14 +326,18 @@ def _correlation_haircuts(
     haircuts = {s: 1.0 for s in symbols}
     # Align every series to the shortest common length (last L points) so corrcoef
     # gets a rectangular matrix; need ≥ 2 names with ≥ 2 aligned points to correlate.
-    usable = [s for s in symbols
-              if returns_by_symbol.get(s) is not None and len(returns_by_symbol[s]) >= 2]
+    # Materialize the non-None series up front so the None branch is excluded once.
+    series: dict[str, np.ndarray] = {
+        s: r for s in symbols
+        if (r := returns_by_symbol.get(s)) is not None and len(r) >= 2
+    }
+    usable = list(series)
     if len(usable) < 2:
         return haircuts
-    min_len = min(len(returns_by_symbol[s]) for s in usable)
+    min_len = min(len(series[s]) for s in usable)
     if min_len < 2:
         return haircuts
-    matrix = np.vstack([returns_by_symbol[s][-min_len:] for s in usable])
+    matrix = np.vstack([series[s][-min_len:] for s in usable])
     with np.errstate(invalid="ignore", divide="ignore"):
         corr = np.corrcoef(matrix)
     corr = np.atleast_2d(corr)

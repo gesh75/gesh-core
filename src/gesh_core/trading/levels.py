@@ -9,8 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
-import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 _log = logging.getLogger(__name__)
 
@@ -100,18 +99,19 @@ def _fetch_atr(symbol: str) -> float | None:
     if not EQUITY_USE_ATR_STOPS or not symbol:
         return None
 
-    key = (symbol, datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    key = (symbol, datetime.now(UTC).strftime("%Y-%m-%d"))
     cached = _ATR_CACHE.get(key)
     if cached is not None:
         return cached
 
     try:
-        from .indicators import atr as _atr_fn
         # Use the shared market_fetch helper: yf.download (period="1y", which Yahoo
         # accepts reliably — the old "2mo" string + yf.Ticker().history fallback
         # intermittently 401'd and silently degraded ATR stops to flat) with the
         # same retry + Robinhood fallback. Returns clean numpy arrays.
         from gesh_core.market_fetch import fetch_ohlcv  # noqa: PLC0415
+
+        from .indicators import atr as _atr_fn
 
         o = fetch_ohlcv(symbol, period_days=60)
         if not o or len(o.get("close", [])) < EQUITY_ATR_PERIOD + 1:

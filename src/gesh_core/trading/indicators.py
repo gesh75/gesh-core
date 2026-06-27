@@ -24,14 +24,14 @@ def atr(
     callers fall back to a fixed-% stop on None (never crash on bad data).
     """
     h = np.asarray(high, dtype=float)
-    l = np.asarray(low, dtype=float)
+    lo = np.asarray(low, dtype=float)
     c = np.asarray(close, dtype=float)
-    if len(c) < period + 1 or len(h) != len(c) or len(l) != len(c):
+    if len(c) < period + 1 or len(h) != len(c) or len(lo) != len(c):
         return None
 
     tr = np.maximum(
-        h[1:] - l[1:],
-        np.maximum(np.abs(h[1:] - c[:-1]), np.abs(l[1:] - c[:-1])),
+        h[1:] - lo[1:],
+        np.maximum(np.abs(h[1:] - c[:-1]), np.abs(lo[1:] - c[:-1])),
     )
     if len(tr) < period:
         return None

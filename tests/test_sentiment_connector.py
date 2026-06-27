@@ -6,10 +6,6 @@ path resolution (the __file__ gotcha fixed during extraction).
 """
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
-
 from gesh_core import sentiment_connector as sc
 
 

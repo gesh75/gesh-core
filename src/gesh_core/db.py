@@ -7,14 +7,15 @@ Tables:
 """
 
 from __future__ import annotations
+
 import json
+import os as _os
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import os as _os
 # gesh-core can't use __file__ (it points inside the package, not either consumer
 # repo). Each repo keeps its OWN gesh_financial.db (separate books, rule #44) — the
 # default is cwd-relative, matching trading.state's resolver, since servers/chain
@@ -143,7 +144,7 @@ def log_analysis(
     result: dict[str, Any],
 ) -> int:
     """Insert a deep-analysis run. Returns the new row id."""
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     with _conn() as con:
         cur = con.execute(
             """
@@ -225,7 +226,7 @@ def get_analysis_by_id(run_id: int) -> dict | None:
 
 def log_equity_snapshot(holdings: list[dict]) -> None:
     """Persist current equity/price for every holding."""
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     with _conn() as con:
         con.executemany(
             """

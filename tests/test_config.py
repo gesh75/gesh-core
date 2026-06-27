@@ -6,6 +6,8 @@ could flip live trading on, so these defaults are asserted explicitly.
 """
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from gesh_core.trading import config
@@ -37,7 +39,7 @@ def test_load_defaults_paper_when_env_unset(monkeypatch):
 
 def test_frozen_dataclass():
     cfg = RiskConfig()
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         cfg.paper_mode = False  # frozen → cannot mutate
 
 

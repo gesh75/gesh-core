@@ -9,9 +9,10 @@ backtest, or replay history — because the type contract is fixed.
 """
 
 from __future__ import annotations
+
 import uuid
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 Action = Literal["BUY", "SELL", "HOLD"]
@@ -20,7 +21,7 @@ SCHEMA_VERSION = 1
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 @dataclass
