@@ -30,8 +30,10 @@ for callers that run from elsewhere.
 """
 
 from __future__ import annotations
+
 import json
 import os
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -111,8 +113,8 @@ def load_config() -> dict[str, Any]:
 
 def save_config(cfg: dict[str, Any]) -> None:
     """Persist config to disk with timestamp."""
-    from datetime import datetime, timezone
-    cfg["last_updated"] = datetime.now(timezone.utc).isoformat()
+    from datetime import datetime
+    cfg["last_updated"] = datetime.now(UTC).isoformat()
     with open(_config_path(), "w") as f:
         json.dump(cfg, f, indent=2)
 

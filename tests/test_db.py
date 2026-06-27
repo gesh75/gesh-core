@@ -7,8 +7,6 @@ monkeypatched DB_PATH so the real gesh_financial.db is never touched.
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from gesh_core import db

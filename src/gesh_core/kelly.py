@@ -8,13 +8,98 @@ Calculates optimal position sizes using:
 Inputs per holding: price history (90d), analyst upside, current allocation
 """
 
-import yfinance as yf
+import logging
+import os
+
 import numpy as np
-from datetime import datetime
+import yfinance as yf
+
+logger = logging.getLogger(__name__)
 
 HALF_KELLY_FACTOR = 0.5   # conservative multiplier
-MAX_POSITION_PCT  = 0.25  # hard cap per position
+# Per-position hard cap. Env-overridable (KELLY_MAX_POSITION_PCT) but the default
+# stays 0.25 so the standalone kelly_size_holding path — consumed directly by
+# consensus.py / run_engines2.py and the /kelly dashboard — is unchanged.
+MAX_POSITION_PCT  = float(os.getenv("KELLY_MAX_POSITION_PCT", "0.25"))
 MIN_HISTORY_DAYS  = 30    # minimum trading days needed
+
+# ─── H2: portfolio-level reconciliation knobs (read at CALL time) ──────────────
+# Summing independent per-name Kellys systematically OVERBETS once positions are
+# correlated (EXA's #1 Kelly mistake). run_kelly_analysis reconciles the book with
+# two overlays, both env-tunable without touching the per-name math:
+#   • a correlation haircut — a name inside an N-name correlated cluster is sized
+#     1/sqrt(N) (the standard diversification adjustment), so 3 AI-semis names are
+#     not budgeted as 3 independent edges;
+#   • a gross-exposure cap — if the haircut book still sums above the cap, every
+#     position is scaled down proportionally so total Kelly never exceeds it.
+_DEFAULT_MAX_GROSS_PCT = 1.0    # 100% of portfolio (gross long)
+_DEFAULT_CORR_THRESHOLD = 0.70  # |corr| at/above which two names share a cluster
+
+
+def _max_gross_exposure() -> float:
+    """Gross-exposure cap as a fraction (1.0 = 100%). Env KELLY_MAX_GROSS_PCT."""
+    try:
+        return float(os.getenv("KELLY_MAX_GROSS_PCT", str(_DEFAULT_MAX_GROSS_PCT)))
+    except (TypeError, ValueError):
+        return _DEFAULT_MAX_GROSS_PCT
+
+
+def _corr_threshold() -> float:
+    """Correlation clustering threshold. Env KELLY_CORR_THRESHOLD."""
+    try:
+        return float(os.getenv("KELLY_CORR_THRESHOLD", str(_DEFAULT_CORR_THRESHOLD)))
+    except (TypeError, ValueError):
+        return _DEFAULT_CORR_THRESHOLD
+
+
+# ─── M1: transaction-cost haircut ─────────────────────────────────────────────
+# Kelly assumes frictionless markets; thin edges should shrink (or vanish) once
+# costs are netted out (EXA: use mu_net = mu - costs). Round-trip cost in bps is
+# amortized over a rebalance horizon into a per-DAY drag subtracted from mu in
+# the continuous estimator. Default 10bps over 21 trading days ≈ 0.5bps/day — it
+# barely touches a strong edge but pulls a marginal one toward zero.
+_DEFAULT_COST_BPS = 10.0          # round-trip transaction cost (bps)
+_DEFAULT_REBALANCE_DAYS = 21.0    # amortization horizon (≈ 1 trading month)
+
+
+def _cost_drag_daily() -> float:
+    """Per-day return drag from transaction costs. Env KELLY_COST_BPS / KELLY_REBALANCE_DAYS."""
+    try:
+        bps = float(os.getenv("KELLY_COST_BPS", str(_DEFAULT_COST_BPS)))
+        days = float(os.getenv("KELLY_REBALANCE_DAYS", str(_DEFAULT_REBALANCE_DAYS)))
+    except (TypeError, ValueError):
+        bps, days = _DEFAULT_COST_BPS, _DEFAULT_REBALANCE_DAYS
+    if days <= 0:
+        return 0.0
+    return (bps / 10_000.0) / days
+
+
+# ─── M2: serial-dependence (autocorrelation) shrinkage ────────────────────────
+# Standard Kelly assumes independent bets, but daily returns are serially
+# correlated, which inflates the variance of cumulative returns and overstates
+# the reliability of mu (EXA: adjust the effective sample size). We shrink the
+# sized fraction by sqrt(N_eff / N) = sqrt((1-rho)/(1+rho)) using the lag-1
+# autocorrelation rho (only when rho > 0; clamped to a floor so an extreme rho
+# can't zero the position). Toggle off with KELLY_AUTOCORR_SHRINK=0.
+_AUTOCORR_SHRINK_FLOOR = 0.30
+
+
+def _autocorr_shrink(returns: np.ndarray) -> tuple[float, float]:
+    """Return (lag1_autocorr, shrink_factor∈[floor,1]). Factor 1.0 when disabled,
+    flat, or non-positively autocorrelated (never UP-sizes)."""
+    if os.getenv("KELLY_AUTOCORR_SHRINK", "1") in ("0", "false", "False"):
+        return 0.0, 1.0
+    if returns is None or len(returns) < 3:
+        return 0.0, 1.0
+    a, b = returns[:-1], returns[1:]
+    if float(np.std(a)) == 0.0 or float(np.std(b)) == 0.0:
+        return 0.0, 1.0
+    with np.errstate(invalid="ignore", divide="ignore"):
+        rho = float(np.corrcoef(a, b)[0, 1])
+    if not np.isfinite(rho) or rho <= 0.0:
+        return (rho if np.isfinite(rho) else 0.0), 1.0
+    factor = float(np.sqrt((1.0 - rho) / (1.0 + rho)))
+    return rho, max(_AUTOCORR_SHRINK_FLOOR, min(1.0, factor))
 
 def _fetch_returns(symbol: str, days: int = 90) -> np.ndarray | None:
     try:
@@ -40,16 +125,23 @@ def _fetch_returns(symbol: str, days: int = 90) -> np.ndarray | None:
             closes = closes.squeeze()
         returns = closes.pct_change().dropna().values.astype(float)
         return returns
-    except Exception:
+    except Exception as e:  # noqa: BLE001 — fetch is best-effort; None → caller skips
+        logger.debug("_fetch_returns failed for %s: %s", symbol, e)
         return None
 
-def _continuous_kelly(returns: np.ndarray, risk_free_daily: float = 0.0) -> dict:
-    """Log-normal Kelly: f* = (μ - r) / σ²"""
+def _continuous_kelly(returns: np.ndarray, risk_free_daily: float = 0.0,
+                      cost_drag: float = 0.0) -> dict:
+    """Log-normal Kelly: f* = (μ − r − costs) / σ².
+
+    `cost_drag` is a per-period transaction-cost haircut on μ (default 0.0 keeps
+    the pure estimator frictionless); kelly_size_holding passes the configured
+    drag so thin edges shrink toward zero once costs are netted out.
+    """
     mu  = float(np.mean(returns))
     sig = float(np.std(returns))
     if sig == 0:
         return {"kelly_pct": 0.0, "method": "continuous"}
-    excess = mu - risk_free_daily
+    excess = mu - risk_free_daily - cost_drag
     raw_kelly = excess / (sig ** 2)
     return {
         "kelly_pct": raw_kelly,
@@ -79,9 +171,12 @@ def _discrete_kelly(returns: np.ndarray, threshold: float = 0.0) -> dict:
 
 def _volatility_score(returns: np.ndarray) -> str:
     ann_vol = float(np.std(returns)) * np.sqrt(252) * 100
-    if ann_vol < 30:  return "LOW"
-    if ann_vol < 60:  return "MEDIUM"
-    if ann_vol < 100: return "HIGH"
+    if ann_vol < 30:
+        return "LOW"
+    if ann_vol < 60:
+        return "MEDIUM"
+    if ann_vol < 100:
+        return "HIGH"
     return "EXTREME"
 
 def _max_drawdown(returns: np.ndarray) -> float:
@@ -118,13 +213,18 @@ def kelly_size_holding(
             "recommended_usd": None,
         }
 
-    cont   = _continuous_kelly(returns)
+    cost_drag = _cost_drag_daily()                       # M1: net costs out of μ
+    cont   = _continuous_kelly(returns, cost_drag=cost_drag)
     disc   = _discrete_kelly(returns)
     ann_vol = float(np.std(returns)) * np.sqrt(252) * 100
     mdd     = _max_drawdown(returns)
 
     # Blend: 60% continuous + 40% discrete (more stable)
     raw_blend = 0.6 * cont["kelly_pct"] + 0.4 * disc["kelly_pct"]
+
+    # M2: serial-dependence shrinkage — daily returns are not independent bets.
+    autocorr_lag1, autocorr_factor = _autocorr_shrink(returns)
+    raw_blend *= autocorr_factor
 
     # Analyst upside boost: scale by upside confidence (cap +20% adjustment)
     if analyst_upside_pct is not None and analyst_upside_pct > 0:
@@ -196,12 +296,107 @@ def kelly_size_holding(
         "ai_penalty":      ai_penalty,
         "mu_daily":        cont.get("mu_daily", 0),
         "sigma_daily":     cont.get("sigma_daily", 0),
+        "cost_drag_daily": round(cost_drag, 6),
+        "autocorr_lag1":   round(autocorr_lag1, 3),
+        "autocorr_shrink": round(autocorr_factor, 3),
     }
+
+def _classify_action(current_pct: float, final_pct: float) -> tuple[str, str]:
+    """(action, color) from current vs target weight — mirrors kelly_size_holding."""
+    if final_pct == 0:
+        return "AVOID", "red"
+    if current_pct > final_pct * 1.3:
+        return "TRIM", "yellow"
+    if current_pct < final_pct * 0.6:
+        return "ADD", "green"
+    return "HOLD", "cyan"
+
+
+def _correlation_haircuts(
+    symbols: list[str],
+    returns_by_symbol: dict[str, np.ndarray | None],
+    threshold: float,
+) -> dict[str, float]:
+    """Map symbol → diversification haircut (≤ 1.0) based on return correlation.
+
+    A name in an N-member correlated cluster (|corr| ≥ threshold with N-1 peers,
+    itself included → N) is scaled by 1/sqrt(N). Names with no usable returns, or
+    no correlated peer, get 1.0 (fail-open — the overlay never UP-sizes a name).
+    """
+    haircuts = {s: 1.0 for s in symbols}
+    # Align every series to the shortest common length (last L points) so corrcoef
+    # gets a rectangular matrix; need ≥ 2 names with ≥ 2 aligned points to correlate.
+    # Materialize the non-None series up front so the None branch is excluded once.
+    series: dict[str, np.ndarray] = {
+        s: r for s in symbols
+        if (r := returns_by_symbol.get(s)) is not None and len(r) >= 2
+    }
+    usable = list(series)
+    if len(usable) < 2:
+        return haircuts
+    min_len = min(len(series[s]) for s in usable)
+    if min_len < 2:
+        return haircuts
+    matrix = np.vstack([series[s][-min_len:] for s in usable])
+    with np.errstate(invalid="ignore", divide="ignore"):
+        corr = np.corrcoef(matrix)
+    corr = np.atleast_2d(corr)
+    for i, s in enumerate(usable):
+        # Cluster size = self + peers at/above threshold (ignore NaNs from flat series).
+        peers = sum(
+            1 for j in range(len(usable))
+            if j != i and np.isfinite(corr[i, j]) and abs(corr[i, j]) >= threshold
+        )
+        cluster_size = 1 + peers
+        if cluster_size > 1:
+            haircuts[s] = 1.0 / np.sqrt(cluster_size)
+    return haircuts
+
+
+def _rescale_result(
+    r: dict, equity: float, total_portfolio: float,
+    corr_haircut: float, gross_factor: float,
+) -> dict:
+    """Return a NEW result dict with size scaled by corr_haircut × gross_factor.
+
+    Recomputes the dollar/delta/action fields so the post-reconciliation row is
+    internally consistent. Immutable: the input dict is not mutated.
+    """
+    out = dict(r)
+    factor = corr_haircut * gross_factor
+    final_pct = round(r["optimal_pct"] * factor, 1)          # still a percentage
+    current_pct = r.get("current_pct", 0.0)
+    recommended_usd = final_pct / 100.0 * total_portfolio
+    action, color = _classify_action(current_pct, final_pct)
+    out.update({
+        "optimal_pct":     final_pct,
+        "half_kelly":      final_pct,
+        "recommended_usd": round(recommended_usd, 2),
+        "delta_usd":       round(recommended_usd - equity, 2),
+        "delta_pct":       round(final_pct - current_pct, 1),
+        "action":          action,
+        "action_color":    color,
+        "corr_haircut":    round(corr_haircut, 3),
+    })
+    return out
+
 
 def run_kelly_analysis(holdings: list[dict], total_portfolio: float,
                        analyst_targets: dict | None = None,
                        ai_verdicts: dict | None = None) -> dict:
-    """Run Kelly on all holdings, return ranked results + portfolio summary."""
+    """Run Kelly on all holdings, return ranked results + portfolio summary.
+
+    Per-name Kellys are reconciled at the portfolio level (H2) so a book of
+    correlated, individually-capped positions can no longer sum to an overbet:
+      1. each name is fetched once and sized via ``kelly_size_holding``;
+      2. a correlation haircut shrinks names inside correlated clusters;
+      3. a gross-exposure cap proportionally scales the whole book if it still
+         sums above ``KELLY_MAX_GROSS_PCT``.
+    ``gross_scale_factor`` / ``rescaled`` and per-row ``corr_haircut`` are surfaced
+    so the dashboard can explain any trim.
+    """
+    eq_by_symbol: dict[str, float] = {}
+    returns_by_symbol: dict[str, np.ndarray | None] = {}
     results = []
     for h in holdings:
         sym   = h.get("symbol", "")
@@ -211,28 +406,60 @@ def run_kelly_analysis(holdings: list[dict], total_portfolio: float,
         upside = None
         if analyst_targets and sym in analyst_targets:
             upside = analyst_targets[sym].get("upside_pct")
-            
+
         eval_dict = None
         if ai_verdicts and sym in ai_verdicts:
             eval_dict = ai_verdicts[sym]
-            
-        r = kelly_size_holding(sym, eq, total_portfolio, cost, price, upside, eval_dict)
-        results.append(r)
 
-    # Portfolio-level stats
-    allocated_pct   = sum(r["optimal_pct"] for r in results if r.get("optimal_pct"))
-    over_positions  = [r for r in results if r.get("action") == "TRIM"]
-    under_positions = [r for r in results if r.get("action") == "ADD"]
-    avoid_positions = [r for r in results if r.get("action") == "AVOID"]
+        # Fetch returns ONCE per symbol and retain them for the correlation pass
+        # (instead of letting kelly_size_holding fetch-and-discard internally).
+        rets = _fetch_returns(sym, days=90)
+        r = kelly_size_holding(sym, eq, total_portfolio, cost, price, upside,
+                               eval_dict, returns=rets)
+        results.append(r)
+        eq_by_symbol[sym] = eq
+        returns_by_symbol[sym] = rets
+
+    # ── Reconciliation overlays (only rows with a numeric optimal_pct) ──────────
+    sized = [r for r in results if isinstance(r.get("optimal_pct"), (int, float))]
+    haircuts = _correlation_haircuts(
+        [r["symbol"] for r in sized], returns_by_symbol, _corr_threshold()
+    )
+
+    # Gross-exposure cap after the haircut, applied proportionally.
+    haircut_gross = sum(r["optimal_pct"] * haircuts.get(r["symbol"], 1.0) for r in sized)
+    cap_pct = _max_gross_exposure() * 100.0
+    gross_factor = 1.0
+    if haircut_gross > cap_pct and haircut_gross > 0:
+        gross_factor = cap_pct / haircut_gross
+    rescaled = gross_factor < 1.0
+
+    reconciled = [
+        _rescale_result(r, eq_by_symbol.get(r["symbol"], 0.0), total_portfolio,
+                        haircuts.get(r["symbol"], 1.0), gross_factor)
+        for r in sized
+    ]
+    # Carry through any error rows (no optimal_pct) unchanged, tagged for clarity.
+    for r in results:
+        if not isinstance(r.get("optimal_pct"), (int, float)):
+            reconciled.append({**r, "corr_haircut": 1.0})
+
+    # Portfolio-level stats (post-reconciliation)
+    allocated_pct   = sum(r["optimal_pct"] for r in reconciled if r.get("optimal_pct"))
+    over_positions  = [r for r in reconciled if r.get("action") == "TRIM"]
+    under_positions = [r for r in reconciled if r.get("action") == "ADD"]
+    avoid_positions = [r for r in reconciled if r.get("action") == "AVOID"]
 
     return {
-        "holdings":        sorted(results, key=lambda x: x.get("optimal_pct", 0), reverse=True),
+        "holdings":        sorted(reconciled, key=lambda x: x.get("optimal_pct", 0) or 0, reverse=True),
         "total_optimal_allocated_pct": round(allocated_pct, 1),
         "cash_recommended_pct": round(max(0, 100 - allocated_pct), 1),
+        "gross_scale_factor":  round(gross_factor, 4),
+        "rescaled":            rescaled,
         "trim_list":  [r["symbol"] for r in over_positions],
         "add_list":   [r["symbol"] for r in under_positions],
         "avoid_list": [r["symbol"] for r in avoid_positions],
         "portfolio_kelly_score": round(
-            np.mean([r["half_kelly"] for r in results if r.get("half_kelly", 0) > 0]) if results else 0, 1
+            np.mean([r["half_kelly"] for r in reconciled if r.get("half_kelly", 0) > 0]) if reconciled else 0, 1
         ),
     }

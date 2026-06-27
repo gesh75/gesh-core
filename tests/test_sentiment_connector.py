@@ -6,10 +6,6 @@ path resolution (the __file__ gotcha fixed during extraction).
 """
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
-
 from gesh_core import sentiment_connector as sc
 
 
@@ -56,6 +52,39 @@ def test_node_sentiment_never_raises(monkeypatch):
                         lambda symbol, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     vote, detail = sc.node_sentiment("NVDA")
     assert vote is sc.ABSTAIN
+
+
+def test_fetched_at_is_timezone_aware(monkeypatch, tmp_path):
+    """fetched_at must be a timezone-aware UTC timestamp (M3).
+
+    The module previously used the deprecated naive datetime.utcnow(); on
+    Python >=3.12 that emits a DeprecationWarning and yields a naive timestamp
+    that breaks aware/naive comparisons in _cache_valid.
+    """
+    from datetime import datetime
+
+    monkeypatch.setattr(sc, "SENTIMENT_CACHE_FILE", tmp_path / ".cache.json")
+    monkeypatch.setattr(sc, "_fetch_praw", lambda s: [])
+    monkeypatch.setattr(sc, "_fetch_json_api", lambda s: [])
+
+    res = sc.get_reddit_sentiment("NVDA", force_refresh=True)
+    parsed = datetime.fromisoformat(res["fetched_at"])
+    assert parsed.tzinfo is not None, "fetched_at should be timezone-aware (UTC)"
+
+
+def test_cache_valid_roundtrip_is_fresh(monkeypatch, tmp_path):
+    """A freshly written cache entry must read back as valid (M3 regression).
+
+    Guards against an aware/naive subtraction TypeError between the written
+    fetched_at and the _cache_valid 'now' that would silently invalidate every
+    cache hit and force a refetch on every call.
+    """
+    monkeypatch.setattr(sc, "SENTIMENT_CACHE_FILE", tmp_path / ".cache.json")
+    monkeypatch.setattr(sc, "_fetch_praw", lambda s: [])
+    monkeypatch.setattr(sc, "_fetch_json_api", lambda s: [])
+
+    sc.get_reddit_sentiment("NVDA", force_refresh=True)  # writes cache
+    assert sc._cache_valid("NVDA") is True
 
 
 def test_cache_path_env_override(monkeypatch, tmp_path):

@@ -9,9 +9,13 @@ from __future__ import annotations
 import pytest
 
 from gesh_core.trading import risk_gate_core as rgc
-from gesh_core.trading.risk_gate_core import GateVerdict, _kill_switch_present, _post_trade_cash_estimate
 from gesh_core.trading.config import RiskConfig
 from gesh_core.trading.contract import manual
+from gesh_core.trading.risk_gate_core import (
+    GateVerdict,
+    _kill_switch_present,
+    _post_trade_cash_estimate,
+)
 
 
 def test_module_loads_from_gesh_core():

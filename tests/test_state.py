@@ -8,7 +8,7 @@ the PAPER daily-loss circuit breaker.
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -23,7 +23,7 @@ def _tmp_db(tmp_path, monkeypatch):
 
 
 def _today_iso():
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d") + "T12:00:00+00:00"
+    return datetime.now(UTC).strftime("%Y-%m-%d") + "T12:00:00+00:00"
 
 
 def test_module_loads_from_gesh_core():

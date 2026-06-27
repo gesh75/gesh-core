@@ -116,3 +116,34 @@ def test_harvest_summary_counts_and_generated_at():
     # generated_at is a naive ISO timestamp (no offset suffix), non-deprecated form
     assert "+00:00" not in out["generated_at"]
     assert "T" in out["generated_at"]
+
+
+# ─── Connection lifecycle (H1: no leaked SQLite connections) ───────────────────
+
+def test_no_leaked_connections(monkeypatch):
+    """Every SQLite connection tax_harvester opens must be closed (H1).
+
+    sqlite3's connection context manager commits but does NOT close; the prior
+    `with _get_conn() as conn:` pattern leaked a handle on every call, which
+    accumulated across each autopilot scan. A closed connection raises
+    ProgrammingError on use, so we assert every opened connection is closed.
+    """
+    import sqlite3 as _sqlite
+
+    real_connect = th.sqlite3.connect
+    opened: list[_sqlite.Connection] = []
+
+    def tracking_connect(*args, **kwargs):
+        con = real_connect(*args, **kwargs)
+        opened.append(con)
+        return con
+
+    monkeypatch.setattr(th.sqlite3, "connect", tracking_connect)
+
+    th.record_harvest("NVDA", 100.0, -500.0)
+    th.get_wash_status("NVDA")
+
+    assert opened, "expected tax_harvester to open at least one connection"
+    for con in opened:
+        with pytest.raises(_sqlite.ProgrammingError):
+            con.execute("SELECT 1")  # raises only if the connection was closed

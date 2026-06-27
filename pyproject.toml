@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gesh-core"
-version = "0.3.1"
+version = "0.4.0"
 description = "Shared core modules for the GESH Financial engine and product repos (de-duplication / drift control)."
 requires-python = ">=3.12"
 # Direct third-party imports across the extracted modules:
@@ -28,9 +28,29 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+src = ["src", "tests"]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# Pragmatic core set: pyflakes (F), pycodestyle errors (E), bugbear (B),
+# isort (I), pyupgrade (UP). Best-effort network swallows are annotated with
+# `# noqa: BLE001` at the call sites rather than globally silenced.
+select = ["E", "F", "B", "I", "UP"]
+ignore = ["E501"]  # long explanatory comments are intentional in this codebase
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src"]
+ignore_missing_imports = true   # yfinance / praw / nltk ship no stubs
+warn_redundant_casts = true
+# Non-strict while the codebase adopts typing incrementally; tighten over time.

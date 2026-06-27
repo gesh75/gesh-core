@@ -14,13 +14,15 @@ server boots. We do point at the same DB_PATH so every row lives together.
 """
 
 from __future__ import annotations
+
 import json
 import os
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
+
 
 # DB resolution (gesh-core can't use __file__ — it points inside the package, not
 # either consumer repo). Each repo keeps its OWN gesh_financial.db (rule #44: the
@@ -152,7 +154,7 @@ def set_marker(name: str, value: str) -> None:
     entry cycle already ran — preventing a duplicate daily Robinhood credential
     login after a restart.
     """
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     with _conn() as con:
         con.execute(
             "INSERT INTO job_markers(name, value, updated_at) VALUES (?, ?, ?) "
@@ -163,7 +165,7 @@ def set_marker(name: str, value: str) -> None:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 # ─── trade_intents ────────────────────────────────────────────────────────────
@@ -263,7 +265,7 @@ def count_orders_today(mode: str | None = None, approved_only: bool = True) -> i
             midday rebalance from burning all 3 slots with rejected intents before
             any real signal gets through.
     """
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
     sql = "SELECT COUNT(*) AS n FROM orders WHERE placed_at >= ?"
     params: list[Any] = [today + "T00:00:00+00:00"]
     if approved_only:
@@ -288,7 +290,7 @@ def paper_realized_pnl_usd_today() -> float:
     paper_outcomes-only sum; in the product, both contribute. A flat paper day never
     blocks entries.
     """
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
     total = 0.0
     with _conn() as con:
         try:

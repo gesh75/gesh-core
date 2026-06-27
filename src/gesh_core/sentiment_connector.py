@@ -44,15 +44,18 @@ Usage:
 
 from __future__ import annotations
 
-import os
 import json
+import logging
+import os
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 # ── Optional praw ─────────────────────────────────────────────────────────────
 try:
@@ -119,8 +122,14 @@ def _cache_valid(symbol: str) -> bool:
         if not entry:
             return False
         fetched = datetime.fromisoformat(entry["fetched_at"])
-        return (datetime.utcnow() - fetched).total_seconds() < CACHE_TTL_M * 60
-    except Exception:
+        # Tolerate legacy naive timestamps (pre-M3 caches) by assuming UTC, so an
+        # aware/naive subtraction never raises — a freshly written aware entry
+        # must still read back as valid.
+        if fetched.tzinfo is None:
+            fetched = fetched.replace(tzinfo=UTC)
+        return (datetime.now(UTC) - fetched).total_seconds() < CACHE_TTL_M * 60
+    except Exception as e:  # noqa: BLE001 — cache check is best-effort; stale → refetch
+        logger.debug("sentiment cache validity check failed for %s: %s", symbol, e)
         return False
 
 
@@ -128,7 +137,8 @@ def _load_cache(symbol: str) -> dict | None:
     try:
         data = json.loads(SENTIMENT_CACHE_FILE.read_text())
         return data.get(symbol.upper())
-    except Exception:
+    except Exception as e:  # noqa: BLE001 — missing/corrupt cache → treat as a miss
+        logger.debug("sentiment cache load failed for %s: %s", symbol, e)
         return None
 
 
@@ -142,8 +152,8 @@ def _save_cache(symbol: str, result: dict) -> None:
                 data = {}
         data[symbol.upper()] = result
         SENTIMENT_CACHE_FILE.write_text(json.dumps(data, default=str))
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001 — cache write is best-effort, never fatal
+        logger.debug("sentiment cache write failed for %s: %s", symbol, e)
 
 
 # ── Sentiment scoring ─────────────────────────────────────────────────────────
@@ -186,7 +196,7 @@ def _fetch_praw(symbol: str) -> list[dict]:
         return []
     cid = _ENV.get("REDDIT_CLIENT_ID")
     csec = _ENV.get("REDDIT_CLIENT_SECRET")
-    ua   = _ENV.get("REDDIT_USER_AGENT", f"gesh-financial/1.0")
+    ua   = _ENV.get("REDDIT_USER_AGENT", "gesh-financial/1.0")
     if not cid or not csec:
         return []
     try:
@@ -211,7 +221,8 @@ def _fetch_praw(symbol: str) -> list[dict]:
                     "source": sub_name,
                 })
         return posts
-    except Exception:
+    except Exception as e:  # noqa: BLE001 — praw failure falls back to the JSON API
+        logger.debug("praw fetch failed for %s: %s", symbol, e)
         return []
 
 
@@ -249,7 +260,8 @@ def _fetch_json_api(symbol: str) -> list[dict]:
                         "source": sub_name,
                     })
                 time.sleep(0.5)  # polite delay for unauthenticated
-            except Exception:
+            except Exception as e:  # noqa: BLE001 — skip this feed, try the next
+                logger.debug("reddit JSON fetch failed for r/%s (%s): %s", sub_name, feed, e)
                 continue
     return posts
 
@@ -292,7 +304,7 @@ def get_reddit_sentiment(symbol: str, force_refresh: bool = False) -> dict[str, 
         "top_sources":     [],
         "data_source":     "unavailable",
         "summary":         f"## Reddit Sentiment ({sym})\n  • No data available",
-        "fetched_at":      datetime.utcnow().isoformat(),
+        "fetched_at":      datetime.now(UTC).isoformat(),
     }
 
     # Try praw first, fall back to JSON API
@@ -348,7 +360,7 @@ def get_reddit_sentiment(symbol: str, force_refresh: bool = False) -> dict[str, 
     else:
         overall = "NEUTRAL"
 
-    top_sources = sorted(source_counts, key=source_counts.get, reverse=True)[:3]
+    top_sources = sorted(source_counts, key=lambda s: source_counts[s], reverse=True)[:3]
 
     result.update({
         "post_count":      n,
@@ -401,8 +413,10 @@ def node_sentiment(symbol: str) -> tuple[int | None, str]:
             f"Posts={n} Bull={bull:.0f}% Bear={bear:.0f}%"
         )
 
-        if overall == "BULLISH":   return VOTE_BULLISH, detail
-        if overall == "BEARISH":   return VOTE_BEARISH, detail
+        if overall == "BULLISH":
+            return VOTE_BULLISH, detail
+        if overall == "BEARISH":
+            return VOTE_BEARISH, detail
         return VOTE_NEUTRAL, detail
 
     except Exception as e:

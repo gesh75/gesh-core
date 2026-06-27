@@ -13,7 +13,6 @@ Also calculates a portfolio-level gate status.
 from __future__ import annotations
 
 from typing import Any
-import numpy as np
 
 # ─── Thresholds ───────────────────────────────────────────────────────────────
 COOLING_DRAWDOWN_PCT   = -8.0    # % change from peak → enters COOLING
