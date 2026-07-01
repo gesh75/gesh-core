@@ -9,3 +9,10 @@ venv/
 
 # Runtime artifact written by allocation_config when a test/run calls load_config with no config present
 gesh_config.json
+
+# Runtime artifact: tax_harvester._db_path() falls back to <cwd>/gesh_financial.db
+# when no GESH_TRACKER_DB/GESH_TRADING_HOME env is set (e.g. local __main__ smoke runs).
+gesh_financial.db
+
+# macOS Finder metadata
+.DS_Store
