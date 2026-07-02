@@ -16,35 +16,16 @@ server boots. We do point at the same DB_PATH so every row lives together.
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 
-# DB resolution (gesh-core can't use __file__ — it points inside the package, not
-# either consumer repo). Each repo keeps its OWN gesh_financial.db (rule #44: the
-# engine and product paper books are deliberately SEPARATE), so the default is
-# cwd-relative — both servers/autopilot/chain run from their own repo root. Override
-# explicitly via GESH_DB_PATH.
-#
-# VirtioFS (macOS shared mount) can't do SQLite DDL/WAL from a sandbox — probe the
-# primary and fall back to /tmp/gesh_trading_state.db if it isn't writable. (Union of
-# the product repo's _resolve_db fallback + the engine's create-if-missing behavior.)
-def _resolve_db() -> Path:
-    primary = Path(os.getenv("GESH_DB_PATH") or (Path.cwd() / "gesh_financial.db"))
-    try:
-        primary.parent.mkdir(parents=True, exist_ok=True)
-        con = sqlite3.connect(str(primary))
-        con.execute("CREATE TABLE IF NOT EXISTS _state_probe (id INTEGER)")
-        con.execute("DROP TABLE IF EXISTS _state_probe")
-        con.close()
-        return primary
-    except sqlite3.OperationalError:
-        return Path("/tmp/gesh_trading_state.db")
-
+# DB resolution lives in gesh_core.db_path — shared with db.py so the audit chain
+# and the paper books (which drive the daily-loss breaker) can never land in two
+# different files. `_resolve_db` is kept as an alias for existing import sites.
+from gesh_core.db_path import resolve_db_path as _resolve_db
 
 DB_PATH = _resolve_db()
 
@@ -109,6 +90,20 @@ CREATE TABLE IF NOT EXISTS job_markers (
     value       TEXT NOT NULL,              -- e.g. '2026-06-08'
     updated_at  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS paper_stops (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at         TEXT    NOT NULL,
+    order_row_id       INTEGER,             -- orders.id of the entry fill
+    symbol             TEXT    NOT NULL,
+    entry_price        REAL    NOT NULL,
+    stop_price         REAL    NOT NULL,
+    take_profit_price  REAL,
+    volatility_tier    TEXT,
+    active             INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX IF NOT EXISTS idx_paper_stops_active ON paper_stops(active, symbol);
 """
 
 
@@ -259,17 +254,17 @@ def count_orders_today(mode: str | None = None, approved_only: bool = True) -> i
 
     Args:
         mode: Pass mode='paper' to filter to paper orders only.
-        approved_only: When True (default), only count non-REJECTED orders toward
-            the daily cap. Rejected orders don't consume the rate limit — only
-            actual fills (SIMULATED, APPROVED, FILLED) count. This prevents the
-            midday rebalance from burning all 3 slots with rejected intents before
-            any real signal gets through.
+        approved_only: When True (default), only count orders that actually went
+            to the book (SIMULATED, SUBMITTED, FILLED) toward the daily cap.
+            REJECTED and ERROR rows don't consume the rate limit — otherwise a
+            morning of broker/network errors (or a midday rebalance full of
+            rejected intents) burns all 3 slots before any real signal fills.
     """
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     sql = "SELECT COUNT(*) AS n FROM orders WHERE placed_at >= ?"
     params: list[Any] = [today + "T00:00:00+00:00"]
     if approved_only:
-        sql += " AND status != 'REJECTED'"
+        sql += " AND status NOT IN ('REJECTED', 'ERROR')"
     if mode:
         sql += " AND mode = ?"
         params.append(mode)
@@ -311,6 +306,101 @@ def paper_realized_pnl_usd_today() -> float:
         except sqlite3.OperationalError:
             pass
     return total
+
+
+# ─── paper book (positions + stops) ───────────────────────────────────────────
+
+def paper_open_positions() -> dict[str, dict[str, float]]:
+    """Net open paper positions reconstructed from SIMULATED paper fills.
+
+    Returns ``{symbol: {"qty", "cost_basis", "avg_cost"}}`` using the
+    average-cost method: BUY fills add qty/cost, SELL fills reduce qty and cost
+    proportionally. Only ``status='SIMULATED' AND mode='paper'`` rows count —
+    REJECTED/SKIPPED/ERROR audit rows never create a position.
+
+    This is the source of truth execution sizing must use in paper mode: the
+    real Robinhood holdings in the snapshot don't contain paper positions, so
+    sizing SELLs against them collapsed every close to qty=0 (the "0 closed
+    trades / phantom position" failure).
+    """
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT symbol, action, fill_qty, fill_price FROM orders "
+            "WHERE mode = 'paper' AND status = 'SIMULATED' "
+            "AND action IN ('BUY', 'SELL') "
+            "AND fill_qty IS NOT NULL AND fill_price IS NOT NULL "
+            "ORDER BY id",
+        ).fetchall()
+
+    book: dict[str, dict[str, float]] = {}
+    for r in rows:
+        sym = r["symbol"]
+        qty = float(r["fill_qty"] or 0.0)
+        price = float(r["fill_price"] or 0.0)
+        if qty <= 0:
+            continue
+        cur = book.get(sym, {"qty": 0.0, "cost_basis": 0.0})
+        if r["action"] == "BUY":
+            cur = {"qty": cur["qty"] + qty, "cost_basis": cur["cost_basis"] + qty * price}
+        else:  # SELL — reduce at average cost; ignore sells beyond the position
+            if cur["qty"] <= 0:
+                continue
+            sell_qty = min(qty, cur["qty"])
+            avg = cur["cost_basis"] / cur["qty"]
+            cur = {"qty": cur["qty"] - sell_qty, "cost_basis": cur["cost_basis"] - sell_qty * avg}
+        book[sym] = cur
+
+    out: dict[str, dict[str, float]] = {}
+    for sym, cur in book.items():
+        if cur["qty"] > 1e-9:
+            out[sym] = {
+                "qty": round(cur["qty"], 6),
+                "cost_basis": round(cur["cost_basis"], 4),
+                "avg_cost": round(cur["cost_basis"] / cur["qty"], 6),
+            }
+    return out
+
+
+def record_stop(
+    symbol: str,
+    entry_price: float,
+    stop_price: float,
+    take_profit_price: float | None = None,
+    volatility_tier: str | None = None,
+    order_row_id: int | None = None,
+) -> int:
+    """Persist an exit stop for a paper entry so the EOD sweep has a real level
+    to compare against (holdings never carry a stop_loss field)."""
+    with _conn() as con:
+        cur = con.execute(
+            """
+            INSERT INTO paper_stops
+              (created_at, order_row_id, symbol, entry_price, stop_price,
+               take_profit_price, volatility_tier, active)
+            VALUES (?,?,?,?,?,?,?,1)
+            """,
+            (_now(), order_row_id, symbol, entry_price, stop_price,
+             take_profit_price, volatility_tier),
+        )
+        return cur.lastrowid
+
+
+def active_stops() -> dict[str, dict[str, Any]]:
+    """Latest active stop per symbol: {symbol: {stop_price, take_profit_price, ...}}."""
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT * FROM paper_stops WHERE active = 1 ORDER BY id",
+        ).fetchall()
+    return {r["symbol"]: dict(r) for r in rows}  # later rows win per symbol
+
+
+def deactivate_stops(symbol: str) -> None:
+    """Retire all active stops for a symbol (position fully closed)."""
+    with _conn() as con:
+        con.execute(
+            "UPDATE paper_stops SET active = 0 WHERE symbol = ? AND active = 1",
+            (symbol,),
+        )
 
 
 def recent_orders(limit: int = 25) -> list[dict]:

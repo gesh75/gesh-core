@@ -107,3 +107,18 @@ def test_to_dict_roundtrip_keys():
     d = manual("NVDA", "BUY", target_position_pct=0.02).to_dict()
     for key in ("symbol", "action", "confidence", "source", "intent_uuid", "schema_version"):
         assert key in d
+
+
+# ─── confidence semantics (audit PR4 — resolved as division of labor) ────────
+
+def test_from_consensus_confidence_is_participation_not_conviction():
+    """confidence stays 0..1 participation (data coverage). Conviction is
+    gated separately by the P2 entry floor on raw_score
+    (RiskConfig.min_entry_score) — blending raw_score in here double-gated
+    entries and silently re-calibrated every consumer's min_confidence."""
+    base = {"symbol": "NVDA", "verdict": "BUY", "confidence": 80,
+            "active_nodes": 8, "total_nodes": 11}
+    weak = from_consensus({**base, "raw_score": 0.26})
+    strong = from_consensus({**base, "raw_score": 0.60})
+    assert weak.confidence == pytest.approx(0.80)
+    assert strong.confidence == pytest.approx(0.80)

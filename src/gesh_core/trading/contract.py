@@ -87,7 +87,12 @@ def from_consensus(
     """
     verdict = (consensus_row.get("verdict") or "").upper()
     raw_score = float(consensus_row.get("raw_score", 0))
-    # consensus returns confidence as 0..100 percent of nodes that voted
+    # consensus returns confidence as 0..100 percent of nodes that voted.
+    # Deliberately DATA COVERAGE only — conviction (signal strength) is gated
+    # separately by the callers' P2 entry floor on raw_score
+    # (RiskConfig.min_entry_score), so the two levers stay independently
+    # tunable. Do NOT blend raw_score in here: that double-gates entries and
+    # silently re-calibrates every consumer's min_confidence.
     confidence = float(consensus_row.get("confidence", 0)) / 100.0
 
     if verdict == "STRONG BUY":
