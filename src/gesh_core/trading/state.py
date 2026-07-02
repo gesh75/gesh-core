@@ -21,7 +21,6 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
-
 # DB resolution lives in gesh_core.db_path — shared with db.py so the audit chain
 # and the paper books (which drive the daily-loss breaker) can never land in two
 # different files. `_resolve_db` is kept as an alias for existing import sites.
