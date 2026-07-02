@@ -12,6 +12,7 @@ import logging
 import os
 
 import numpy as np
+import pandas as pd
 import yfinance as yf
 
 logger = logging.getLogger(__name__)
@@ -115,7 +116,16 @@ def _autocorr_shrink(returns: np.ndarray) -> tuple[float, float]:
     factor = float(np.sqrt((1.0 - rho) / (1.0 + rho)))
     return rho, max(_AUTOCORR_SHRINK_FLOOR, min(1.0, factor))
 
-def _fetch_returns(symbol: str, days: int = 90) -> np.ndarray | None:
+def _fetch_returns(symbol: str, days: int = 90) -> pd.Series | None:
+    """Daily returns as a DATE-indexed Series (index normalized to naive dates).
+
+    The index is what lets ``_correlation_haircuts`` align symbols by calendar
+    date instead of by array position — positional alignment misdated every
+    series with a gap (halt day, listing gap, partial fetch) and produced wrong
+    cluster sizes. The sizing math itself is date-agnostic: ``kelly_size_holding``
+    coerces to ndarray, and test seams may inject plain ndarrays (the haircut
+    pass then falls back to positional alignment).
+    """
     try:
         # Standard period string ("2y") avoids the "possibly delisted" errors that
         # custom Nd period strings caused on rebranded crypto tickers (MATIC, UNI1),
@@ -137,8 +147,16 @@ def _fetch_returns(symbol: str, days: int = 90) -> np.ndarray | None:
         closes = raw["Close"]
         if hasattr(closes, "squeeze"):
             closes = closes.squeeze()
-        returns = closes.pct_change().dropna().values.astype(float)
-        return returns
+        returns = closes.pct_change().dropna().astype(float)
+        # Normalize the index for cross-source alignment: Yahoo is tz-aware
+        # (America/New_York), the Robinhood fallback may be naive — without
+        # stripping tz + time-of-day, an inner join across sources matches
+        # ZERO dates and the haircut silently fails open.
+        idx = pd.DatetimeIndex(returns.index)
+        if idx.tz is not None:
+            idx = idx.tz_localize(None)
+        returns.index = idx.normalize()
+        return returns[~returns.index.duplicated(keep="last")]
     except Exception as e:  # noqa: BLE001 — fetch is best-effort; None → caller skips
         logger.debug("_fetch_returns failed for %s: %s", symbol, e)
         return None
@@ -219,6 +237,10 @@ def kelly_size_holding(
     """
     if returns is None:
         returns = _fetch_returns(symbol, days=90)
+    if returns is not None:
+        # Sizing math is date-agnostic — accept either the dated Series from
+        # _fetch_returns or a plain injected ndarray, compute on ndarray.
+        returns = np.asarray(returns, dtype=float)
     if returns is None or len(returns) < MIN_HISTORY_DAYS:
         return {
             "symbol": symbol,
@@ -328,7 +350,7 @@ def _classify_action(current_pct: float, final_pct: float) -> tuple[str, str]:
 
 def _correlation_haircuts(
     symbols: list[str],
-    returns_by_symbol: dict[str, np.ndarray | None],
+    returns_by_symbol: dict[str, pd.Series | np.ndarray | None],
     threshold: float,
 ) -> dict[str, float]:
     """Map symbol → diversification haircut (≤ 1.0) based on return correlation.
@@ -336,22 +358,36 @@ def _correlation_haircuts(
     A name in an N-member correlated cluster (|corr| ≥ threshold with N-1 peers,
     itself included → N) is scaled by 1/sqrt(N). Names with no usable returns, or
     no correlated peer, get 1.0 (fail-open — the overlay never UP-sizes a name).
+
+    Alignment: when every usable series is a date-indexed ``pd.Series`` (the
+    production path via ``_fetch_returns``), symbols are inner-joined on the
+    shared calendar dates — a mid-series gap (halt day, listing gap, partial
+    fetch) no longer shifts one symbol's Monday against another's Tuesday.
+    Plain ndarrays (test seams / pre-dated injections) keep the positional
+    last-L-points fallback.
     """
     haircuts = {s: 1.0 for s in symbols}
-    # Align every series to the shortest common length (last L points) so corrcoef
-    # gets a rectangular matrix; need ≥ 2 names with ≥ 2 aligned points to correlate.
-    # Materialize the non-None series up front so the None branch is excluded once.
-    series: dict[str, np.ndarray] = {
+    # Need ≥ 2 names with ≥ 2 aligned points to correlate. Materialize the
+    # non-None series up front so the None branch is excluded once.
+    series: dict[str, pd.Series | np.ndarray] = {
         s: r for s in symbols
         if (r := returns_by_symbol.get(s)) is not None and len(r) >= 2
     }
     usable = list(series)
     if len(usable) < 2:
         return haircuts
-    min_len = min(len(series[s]) for s in usable)
-    if min_len < 2:
-        return haircuts
-    matrix = np.vstack([series[s][-min_len:] for s in usable])
+    if all(isinstance(series[s], pd.Series) for s in usable):
+        # Date-aligned: rows are the calendar dates every symbol shares.
+        frame = pd.concat({s: series[s] for s in usable}, axis=1, join="inner").dropna()
+        if len(frame) < 2:
+            return haircuts   # no overlapping history — fail open, never guess
+        matrix = frame.to_numpy(dtype=float).T
+    else:
+        # Positional fallback: shortest common length, last L points.
+        min_len = min(len(series[s]) for s in usable)
+        if min_len < 2:
+            return haircuts
+        matrix = np.vstack([np.asarray(series[s], dtype=float)[-min_len:] for s in usable])
     with np.errstate(invalid="ignore", divide="ignore"):
         corr = np.corrcoef(matrix)
     corr = np.atleast_2d(corr)
@@ -410,7 +446,7 @@ def run_kelly_analysis(holdings: list[dict], total_portfolio: float,
     so the dashboard can explain any trim.
     """
     eq_by_symbol: dict[str, float] = {}
-    returns_by_symbol: dict[str, np.ndarray | None] = {}
+    returns_by_symbol: dict[str, pd.Series | np.ndarray | None] = {}
     results = []
     for h in holdings:
         sym   = h.get("symbol", "")

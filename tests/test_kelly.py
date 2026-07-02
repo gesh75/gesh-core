@@ -261,3 +261,84 @@ def test_max_position_cap_read_at_call_time(monkeypatch):
     monkeypatch.delenv("KELLY_MAX_POSITION_PCT")
     r2 = kelly_size_holding("NVDA", 0.0, 100_000.0, 10.0, 12.0, returns=POSITIVE_DRIFT)
     assert r2["optimal_pct"] <= MAX_POSITION_PCT * 100
+
+
+# ─── date-aligned correlation haircuts (PR-3) ──────────────────────────────────
+
+def test_haircut_aligns_by_date_not_position():
+    # B is A minus one mid-series day: identical returns on every SHARED date.
+    # Date-aligned correlation is exactly 1.0 → both get the 1/sqrt(2) haircut.
+    # Positional alignment (the old bug) compared A shifted-by-one against B and
+    # saw near-zero correlation → no haircut → correlated cluster overbet.
+    import pandas as pd
+    local = np.random.default_rng(7)
+    dates = pd.bdate_range("2026-01-05", periods=40)
+    a = pd.Series(local.normal(0.001, 0.02, 40), index=dates)
+    b = a.drop(dates[20])
+    hc = kelly._correlation_haircuts(["A", "B"], {"A": a, "B": b}, threshold=0.7)
+    assert hc["A"] == pytest.approx(1 / np.sqrt(2), abs=1e-6)
+    assert hc["B"] == pytest.approx(1 / np.sqrt(2), abs=1e-6)
+
+
+def test_haircut_uncorrelated_dated_series_untouched():
+    import pandas as pd
+    local = np.random.default_rng(11)
+    dates = pd.bdate_range("2026-01-05", periods=60)
+    a = pd.Series(local.normal(0.001, 0.02, 60), index=dates)
+    b = pd.Series(local.normal(0.001, 0.02, 60), index=dates)
+    hc = kelly._correlation_haircuts(["A", "B"], {"A": a, "B": b}, threshold=0.7)
+    assert hc == {"A": 1.0, "B": 1.0}
+
+
+def test_haircut_positional_fallback_for_plain_arrays():
+    # Injected plain ndarrays (no dates) keep the pre-PR-3 positional behavior —
+    # the seam downstream tests rely on.
+    local = np.random.default_rng(13)
+    r = local.normal(0.001, 0.02, 30)
+    hc = kelly._correlation_haircuts(["A", "B"], {"A": r, "B": r.copy()}, threshold=0.7)
+    assert hc["A"] == pytest.approx(1 / np.sqrt(2), abs=1e-6)
+
+
+def test_run_kelly_analysis_date_aligned_end_to_end(monkeypatch):
+    # Two clones of the same upward-drifting series, one with a mid-series gap:
+    # sizing must work off the Series (coerced internally) AND the haircut must
+    # engage via date alignment despite the length mismatch.
+    import pandas as pd
+    local = np.random.default_rng(17)
+    dates = pd.bdate_range("2025-12-01", periods=100)
+    a = pd.Series(local.normal(0.002, 0.01, 100), index=dates)
+    b = a.drop(dates[50])
+    series = {"AAA": a, "BBB": b}
+    monkeypatch.setattr(kelly, "_fetch_returns",
+                        lambda symbol, days=90: series[symbol])
+    out = kelly.run_kelly_analysis(
+        [{"symbol": "AAA", "equity": 1000, "average_buy_price": 10, "current_price": 12},
+         {"symbol": "BBB", "equity": 1000, "average_buy_price": 10, "current_price": 12}],
+        total_portfolio=100_000,
+    )
+    rows = {r["symbol"]: r for r in out["holdings"]}
+    assert rows["AAA"]["corr_haircut"] == pytest.approx(0.707, abs=1e-3)
+    assert rows["BBB"]["corr_haircut"] == pytest.approx(0.707, abs=1e-3)
+    assert rows["AAA"]["optimal_pct"] > 0
+
+
+def test_fetch_returns_normalizes_tz_aware_index(monkeypatch):
+    # Yahoo history carries a tz-aware NY index; the RH fallback may be naive.
+    # _fetch_returns must strip tz + time-of-day so cross-source inner joins
+    # in the haircut pass actually match dates.
+    import pandas as pd
+
+    idx = pd.date_range("2026-01-05 09:30", periods=45, freq="B", tz="America/New_York")
+    frame = pd.DataFrame({"Close": np.linspace(100, 120, 45)}, index=idx)
+
+    class _FakeTicker:
+        def __init__(self, symbol):
+            pass
+        def history(self, **kwargs):
+            return frame
+
+    monkeypatch.setattr(kelly.yf, "Ticker", _FakeTicker)
+    out = kelly._fetch_returns("NVDA")
+    assert isinstance(out, pd.Series)
+    assert out.index.tz is None
+    assert (out.index == out.index.normalize()).all()
