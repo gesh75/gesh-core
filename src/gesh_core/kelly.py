@@ -36,6 +36,20 @@ _DEFAULT_MAX_GROSS_PCT = 1.0    # 100% of portfolio (gross long)
 _DEFAULT_CORR_THRESHOLD = 0.70  # |corr| at/above which two names share a cluster
 
 
+def _max_position_pct() -> float:
+    """Per-position hard cap, read at CALL time (env KELLY_MAX_POSITION_PCT).
+
+    The module constant above keeps its import-time value for existing importers
+    (consensus.py / run_engines2.py read it as a constant), but sizing itself
+    honors env changes in long-lived processes (server/autopilot) like every
+    other knob in this module.
+    """
+    try:
+        return float(os.getenv("KELLY_MAX_POSITION_PCT", str(MAX_POSITION_PCT)))
+    except (TypeError, ValueError):
+        return MAX_POSITION_PCT
+
+
 def _max_gross_exposure() -> float:
     """Gross-exposure cap as a fraction (1.0 = 100%). Env KELLY_MAX_GROSS_PCT."""
     try:
@@ -249,7 +263,7 @@ def kelly_size_holding(
 
     # Apply half-Kelly and hard cap
     half_kelly = raw_blend * HALF_KELLY_FACTOR
-    final_pct  = max(0.0, min(half_kelly, MAX_POSITION_PCT))
+    final_pct  = max(0.0, min(half_kelly, _max_position_pct()))
 
     # Current vs optimal
     current_pct = current_equity / total_portfolio if total_portfolio > 0 else 0
@@ -449,6 +463,12 @@ def run_kelly_analysis(holdings: list[dict], total_portfolio: float,
     over_positions  = [r for r in reconciled if r.get("action") == "TRIM"]
     under_positions = [r for r in reconciled if r.get("action") == "ADD"]
     avoid_positions = [r for r in reconciled if r.get("action") == "AVOID"]
+    # NaN guard: np.mean([]) is NaN — an all-AVOID/all-error book must report 0.0,
+    # not leak NaN into the JSON payload (strict parsers reject it).
+    positive_kellys = [
+        r["half_kelly"] for r in reconciled
+        if isinstance(r.get("half_kelly"), (int, float)) and r["half_kelly"] > 0
+    ]
 
     return {
         "holdings":        sorted(reconciled, key=lambda x: x.get("optimal_pct", 0) or 0, reverse=True),
@@ -459,7 +479,5 @@ def run_kelly_analysis(holdings: list[dict], total_portfolio: float,
         "trim_list":  [r["symbol"] for r in over_positions],
         "add_list":   [r["symbol"] for r in under_positions],
         "avoid_list": [r["symbol"] for r in avoid_positions],
-        "portfolio_kelly_score": round(
-            np.mean([r["half_kelly"] for r in reconciled if r.get("half_kelly", 0) > 0]) if reconciled else 0, 1
-        ),
+        "portfolio_kelly_score": round(float(np.mean(positive_kellys)), 1) if positive_kellys else 0.0,
     }

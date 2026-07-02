@@ -94,6 +94,7 @@ def _db_path() -> Path:
         primary.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(primary), timeout=5)
         conn.execute("CREATE TABLE IF NOT EXISTS _probe (x INTEGER)")
+        conn.execute("DROP TABLE IF EXISTS _probe")
         conn.close()
         return primary
     except Exception:

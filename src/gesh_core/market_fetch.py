@@ -83,11 +83,19 @@ def fetch_ohlcv(symbol: str, period_days: int = 252) -> dict | None:
     if raw is None or len(raw) < 20:
         return None
     try:
+        close = raw["Close"].squeeze()
+        high = raw["High"].squeeze()
+        low = raw["Low"].squeeze()
+        volume = raw["Volume"].squeeze()
+        # Drop NaN ROWS with one shared mask — per-column dropna produced arrays of
+        # different lengths whenever a single field was NaN (common on Yahoo partial
+        # rows), silently misaligning close[i]/volume[i] pairs downstream.
+        mask = close.notna() & high.notna() & low.notna() & volume.notna()
         return {
-            "close":  raw["Close"].squeeze().dropna().values.astype(float),
-            "high":   raw["High"].squeeze().dropna().values.astype(float),
-            "low":    raw["Low"].squeeze().dropna().values.astype(float),
-            "volume": raw["Volume"].squeeze().dropna().values.astype(float),
+            "close":  close[mask].values.astype(float),
+            "high":   high[mask].values.astype(float),
+            "low":    low[mask].values.astype(float),
+            "volume": volume[mask].values.astype(float),
         }
     except Exception as e:  # noqa: BLE001
         logger.debug("fetch_ohlcv: parse error for %s: %s", symbol, e)

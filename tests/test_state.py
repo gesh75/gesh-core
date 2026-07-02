@@ -123,3 +123,15 @@ def test_paper_realized_pnl_ignores_other_days():
         con.execute("CREATE TABLE paper_outcomes (pnl_usd REAL, exit_at TEXT)")
         con.execute("INSERT INTO paper_outcomes VALUES (?, ?)", (-999.0, "2020-01-01T00:00:00+00:00"))
     assert state.paper_realized_pnl_usd_today() == 0.0
+
+
+def test_count_orders_excludes_error_by_default():
+    # Broker/network ERROR rows must not consume the daily order cap — a morning
+    # of transient errors would otherwise exhaust max_orders_per_day with 0 fills.
+    state.init_trading_tables()
+    iid = state.log_intent({"symbol": "X", "action": "BUY", "confidence": 1.0, "source": "m"})
+    state.log_order(iid, None, "paper", "ok-e1", "SIMULATED", "X", "BUY", 1, 1.0)
+    state.log_order(iid, None, "paper", "err-e1", "ERROR", "X", "BUY", 1, 1.0, error="timeout")
+    state.log_order(iid, None, "paper", "rej-e1", "REJECTED", "X", "BUY", 1, 1.0)
+    assert state.count_orders_today() == 1                      # ERROR + REJECTED excluded
+    assert state.count_orders_today(approved_only=False) == 3   # superset still sees all

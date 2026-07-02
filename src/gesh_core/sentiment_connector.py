@@ -151,7 +151,11 @@ def _save_cache(symbol: str, result: dict) -> None:
             except Exception:
                 data = {}
         data[symbol.upper()] = result
-        SENTIMENT_CACHE_FILE.write_text(json.dumps(data, default=str))
+        # Atomic replace: concurrent consensus runs write this file; a plain
+        # write_text can leave a truncated JSON that poisons every later read.
+        tmp = SENTIMENT_CACHE_FILE.with_name(SENTIMENT_CACHE_FILE.name + ".tmp")
+        tmp.write_text(json.dumps(data, default=str))
+        os.replace(tmp, SENTIMENT_CACHE_FILE)
     except Exception as e:  # noqa: BLE001 — cache write is best-effort, never fatal
         logger.debug("sentiment cache write failed for %s: %s", symbol, e)
 
@@ -176,7 +180,9 @@ def _score_text(text: str) -> float:
 
 def _is_relevant(text: str, symbol: str) -> bool:
     """Check if text meaningfully mentions the ticker (not just noise)."""
-    sym = symbol.upper()
+    # re.escape: class-share tickers (BRK.B, BF.B) contain a regex dot that would
+    # otherwise match any character and pull in unrelated posts.
+    sym = re.escape(symbol.upper())
     # Match $NVDA, NVDA, or full company tickers
     patterns = [
         rf"\${sym}\b",

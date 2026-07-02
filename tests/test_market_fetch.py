@@ -97,3 +97,20 @@ def test_fetch_spy_close_caches(monkeypatch):
     b = mf.fetch_spy_close()
     assert a is not None and np.array_equal(a, b)
     assert calls["n"] == 1   # second call served from the 30-min TTL cache
+
+
+def test_fetch_ohlcv_nan_rows_stay_aligned(monkeypatch):
+    # A NaN in ONE column must drop the whole row for ALL columns — per-column
+    # dropna silently misaligned close[i]/volume[i] pairs downstream.
+    df = _df(60)
+    df.loc[10, "Volume"] = np.nan
+    df.loc[20, "High"] = np.nan
+    monkeypatch.setattr(mf, "yf_download_with_retry", lambda *a, **k: df)
+    out = mf.fetch_ohlcv("NVDA")
+    assert out is not None
+    lengths = {k: len(v) for k, v in out.items()}
+    assert len(set(lengths.values())) == 1, lengths        # all arrays same length
+    assert lengths["close"] == 58                          # both NaN rows dropped
+    # Row pairing preserved: index 10's row is gone from every array.
+    assert float(df.loc[11, "Close"]) in out["close"]
+    assert float(df.loc[10, "Close"]) not in out["close"]

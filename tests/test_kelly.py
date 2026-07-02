@@ -238,3 +238,26 @@ def test_positive_autocorrelation_shrinks_size(monkeypatch):
     iid_size = kelly_size_holding("X", 1000, 100_000, 10, 12, returns=shuffled)["optimal_pct"]
 
     assert ac_size < iid_size
+
+
+def test_run_kelly_analysis_all_error_rows_score_is_zero(monkeypatch):
+    # All symbols fail to fetch -> every row is an error row -> the positive-
+    # half_kelly list is empty. Score must be 0.0, never NaN (breaks JSON).
+    monkeypatch.setattr(kelly, "_fetch_returns", lambda *a, **k: None)
+    out = run_kelly_analysis(
+        [{"symbol": "AAA", "equity": 100.0}, {"symbol": "BBB", "equity": 200.0}],
+        total_portfolio=1000.0,
+    )
+    score = out["portfolio_kelly_score"]
+    assert score == 0.0
+    assert not np.isnan(score)
+
+
+def test_max_position_cap_read_at_call_time(monkeypatch):
+    # Env change AFTER import must take effect (long-lived server processes).
+    monkeypatch.setenv("KELLY_MAX_POSITION_PCT", "0.05")
+    r = kelly_size_holding("NVDA", 0.0, 100_000.0, 10.0, 12.0, returns=POSITIVE_DRIFT)
+    assert r["optimal_pct"] <= 5.0
+    monkeypatch.delenv("KELLY_MAX_POSITION_PCT")
+    r2 = kelly_size_holding("NVDA", 0.0, 100_000.0, 10.0, 12.0, returns=POSITIVE_DRIFT)
+    assert r2["optimal_pct"] <= MAX_POSITION_PCT * 100

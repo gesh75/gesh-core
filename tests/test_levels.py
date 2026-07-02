@@ -54,3 +54,17 @@ def test_indicators_atr_matches_true_range():
     close = np.array([9.5, 10.5, 11.5, 12.5, 13.5])
     val = indicators.atr(high, low, close, period=3)
     assert val is not None and val > 0
+
+
+def test_atr_sell_target_floored_positive():
+    # Cheap high-vol name: entry $2, ATR $0.50 -> raw target 2 - 5*0.5 = -0.5.
+    # A negative short take-profit can never fill; it must floor at a positive tick.
+    stop, target = levels._atr_levels("SELL", 2.0, 0.5)
+    assert target is not None and target > 0
+    assert stop is not None and stop > 2.0                 # stop stays above entry
+
+
+def test_atr_buy_levels_unchanged_by_floor():
+    stop, target = levels._atr_levels("BUY", 100.0, 1.0)
+    assert stop == 97.0                                    # 3*ATR clamped to [3%,15%]
+    assert target == 105.0                                 # 5*ATR

@@ -98,3 +98,11 @@ def test_cache_path_env_override(monkeypatch, tmp_path):
     finally:
         monkeypatch.delenv("GESH_SENTIMENT_CACHE", raising=False)
         importlib.reload(sc)
+
+
+def test_is_relevant_escapes_regex_metachars():
+    # Class-share tickers contain a dot — without re.escape "BRK.B" matched any
+    # "BRKxB" token and pulled unrelated posts into the sentiment score.
+    assert sc._is_relevant("thoughts on $BRK.B today", "BRK.B")
+    assert not sc._is_relevant("BRKAB is unrelated", "BRK.B")
+    assert sc._is_relevant("NVDA to the moon", "NVDA")

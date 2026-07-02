@@ -9,18 +9,17 @@ Tables:
 from __future__ import annotations
 
 import json
-import os as _os
 import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
-# gesh-core can't use __file__ (it points inside the package, not either consumer
-# repo). Each repo keeps its OWN gesh_financial.db (separate books, rule #44) — the
-# default is cwd-relative, matching trading.state's resolver, since servers/chain
-# run from their own repo root. Override explicitly via GESH_DB_PATH.
-DB_PATH = Path(_os.environ.get("GESH_DB_PATH") or str(Path.cwd() / "gesh_financial.db"))
+from gesh_core.db_path import resolve_db_path
+
+# Resolved by the SAME probe+fallback resolver as trading.state, so the analysis/
+# paper tables and the execution audit chain always share one file (the daily-loss
+# breaker reads across both). Override explicitly via GESH_DB_PATH.
+DB_PATH = resolve_db_path()
 
 
 # ─── Schema ───────────────────────────────────────────────────────────────────

@@ -32,10 +32,13 @@ for callers that run from elsewhere.
 from __future__ import annotations
 
 import json
+import logging
 import os
-from datetime import UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def _config_path() -> Path:
@@ -96,27 +99,44 @@ PRICE_CAPPED_MODES = {"stock"}
 # ─── Load / Save ──────────────────────────────────────────────────────────────
 
 def load_config() -> dict[str, Any]:
-    """Load config from disk, merging with defaults for any missing keys."""
+    """Load config from disk, merging with defaults for any missing keys.
+
+    A corrupt/unreadable file degrades to the defaults (with a warning) instead
+    of raising — a half-written gesh_config.json must not crash every consumer.
+    The corrupt file is left on disk for inspection; the next save repairs it.
+    """
     config_path = _config_path()
     if not config_path.exists():
-        save_config(DEFAULT_CONFIG)
-        return DEFAULT_CONFIG.copy()
+        return save_config(DEFAULT_CONFIG)
 
-    with open(config_path) as f:
-        stored = json.load(f)
+    try:
+        with open(config_path) as f:
+            stored = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("gesh_config.json unreadable at %s (%s) — using defaults", config_path, e)
+        return DEFAULT_CONFIG.copy()
 
     # Forward-compatible: fill in any new keys from DEFAULT_CONFIG
     cfg = DEFAULT_CONFIG.copy()
-    cfg.update(stored)
+    cfg.update(stored if isinstance(stored, dict) else {})
     return cfg
 
 
-def save_config(cfg: dict[str, Any]) -> None:
-    """Persist config to disk with timestamp."""
-    from datetime import datetime
-    cfg["last_updated"] = datetime.now(UTC).isoformat()
-    with open(_config_path(), "w") as f:
-        json.dump(cfg, f, indent=2)
+def save_config(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Persist config to disk with timestamp; atomic write, input not mutated.
+
+    Returns the saved copy (with ``last_updated`` stamped). The temp-file +
+    os.replace dance means a concurrent reader can never observe a truncated
+    JSON file, and the caller's dict — including the module-level
+    DEFAULT_CONFIG — is never mutated in place.
+    """
+    out = dict(cfg)
+    out["last_updated"] = datetime.now(UTC).isoformat()
+    path = _config_path()
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(out, indent=2))
+    os.replace(tmp, path)
+    return out
 
 
 def update_config(**kwargs) -> dict[str, Any]:
@@ -131,14 +151,12 @@ def update_config(**kwargs) -> dict[str, Any]:
         if key not in DEFAULT_CONFIG:
             raise ValueError(f"Unknown config key: '{key}'. Valid keys: {list(DEFAULT_CONFIG)}")
         cfg[key] = value
-    save_config(cfg)
-    return cfg
+    return save_config(cfg)
 
 
 def reset_config() -> dict[str, Any]:
     """Reset to factory defaults."""
-    save_config(DEFAULT_CONFIG.copy())
-    return DEFAULT_CONFIG.copy()
+    return save_config(DEFAULT_CONFIG)
 
 
 # ─── Action Validation Gate ───────────────────────────────────────────────────

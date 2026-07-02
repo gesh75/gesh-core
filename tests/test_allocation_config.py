@@ -75,3 +75,32 @@ def test_get_scanner_params_default_daily(tmp_path, monkeypatch):
     monkeypatch.setenv("GESH_CONFIG_PATH", str(tmp_path / "gesh_config.json"))
     params = ac.get_scanner_params()
     assert params["interval"] == "1d"
+
+
+def test_default_config_never_mutated(tmp_path, monkeypatch):
+    # load_config on a fresh dir used to pass DEFAULT_CONFIG itself to save_config,
+    # which stamped last_updated INTO the module-level defaults (shared-object
+    # mutation). The defaults must stay pristine.
+    monkeypatch.setenv("GESH_CONFIG_PATH", str(tmp_path / "gesh_config.json"))
+    before = dict(ac.DEFAULT_CONFIG)
+    cfg = ac.load_config()
+    assert ac.DEFAULT_CONFIG == before
+    assert ac.DEFAULT_CONFIG["last_updated"] is None
+    assert cfg["last_updated"] is not None                 # saved copy IS stamped
+
+
+def test_save_config_does_not_mutate_input(tmp_path, monkeypatch):
+    monkeypatch.setenv("GESH_CONFIG_PATH", str(tmp_path / "gesh_config.json"))
+    src = dict(ac.DEFAULT_CONFIG)
+    out = ac.save_config(src)
+    assert src["last_updated"] is None                     # input untouched
+    assert out["last_updated"] is not None
+
+
+def test_corrupt_config_degrades_to_defaults(tmp_path, monkeypatch):
+    p = tmp_path / "gesh_config.json"
+    p.write_text('{"auto_trade": tru')                     # truncated write
+    monkeypatch.setenv("GESH_CONFIG_PATH", str(p))
+    cfg = ac.load_config()                                 # must not raise
+    assert cfg["auto_trade"] is False
+    assert p.read_text().startswith('{"auto_trade": tru')  # corrupt file preserved

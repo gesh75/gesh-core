@@ -74,8 +74,11 @@ def _atr_levels(
 
     if action == "BUY":
         return round(entry_price - risk, 4), round(entry_price + reward, 4)
-    # SELL / short — profit when price falls
-    return round(entry_price + risk, 4), round(entry_price - reward, 4)
+    # SELL / short — profit when price falls. Floor the target at a positive tick:
+    # 5×ATR below entry crosses zero on cheap high-vol names, and a negative target
+    # price can never fill (position would ride untouched to MAX_HOLD_DAYS).
+    target = max(round(entry_price - reward, 4), round(entry_price * 0.01, 4))
+    return round(entry_price + risk, 4), target
 
 
 # Per-(symbol, UTC-date) ATR cache — a symbol's ATR barely moves intraday, so one
