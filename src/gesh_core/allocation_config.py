@@ -98,12 +98,39 @@ PRICE_CAPPED_MODES = {"stock"}
 
 # ─── Load / Save ──────────────────────────────────────────────────────────────
 
+def _coerce_key(key: str, value: Any) -> tuple[Any, bool]:
+    """Validate `value` against the type template in DEFAULT_CONFIG[key].
+
+    Returns (usable_value, ok). On a type mismatch the SAFE default is returned
+    with ok=False — critically, ``auto_trade`` (the live-execution gate) can
+    never be enabled by a truthy non-bool like ``"yes"`` or ``1``, and numeric
+    caps can never reach ``validate_action`` as strings (where ``trade_usd >
+    "9999"`` raises TypeError inside the gate). bool is checked before int
+    because bool subclasses int.
+    """
+    default = DEFAULT_CONFIG[key]
+    if default is None:
+        return value, True                      # runtime-set keys (buying power, timestamp)
+    if isinstance(default, bool):
+        return (value, True) if isinstance(value, bool) else (default, False)
+    if isinstance(default, (int, float)):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return default, False
+        return (float(value) if isinstance(default, float) else value), True
+    if isinstance(default, str):
+        return (value, True) if isinstance(value, str) else (default, False)
+    return value, True
+
+
 def load_config() -> dict[str, Any]:
     """Load config from disk, merging with defaults for any missing keys.
 
-    A corrupt/unreadable file degrades to the defaults (with a warning) instead
-    of raising — a half-written gesh_config.json must not crash every consumer.
-    The corrupt file is left on disk for inspection; the next save repairs it.
+    Boundary-validated: every known key is type-checked against DEFAULT_CONFIG
+    and falls back per-key (with a warning) on mismatch — a hand-edited value
+    must not crash or silently weaken the execution gates. Unknown keys pass
+    through untouched for forward compatibility. A corrupt/unreadable file
+    degrades to the defaults instead of raising; the corrupt file is left on
+    disk for inspection and the next save repairs it.
     """
     config_path = _config_path()
     if not config_path.exists():
@@ -116,9 +143,18 @@ def load_config() -> dict[str, Any]:
         logger.warning("gesh_config.json unreadable at %s (%s) — using defaults", config_path, e)
         return DEFAULT_CONFIG.copy()
 
-    # Forward-compatible: fill in any new keys from DEFAULT_CONFIG
     cfg = DEFAULT_CONFIG.copy()
-    cfg.update(stored if isinstance(stored, dict) else {})
+    for key, value in (stored.items() if isinstance(stored, dict) else ()):
+        if key in DEFAULT_CONFIG:
+            coerced, ok = _coerce_key(key, value)
+            if not ok:
+                logger.warning(
+                    "gesh_config.json: %r has invalid type %s (%r) — using default %r",
+                    key, type(value).__name__, value, DEFAULT_CONFIG[key],
+                )
+            cfg[key] = coerced
+        else:
+            cfg[key] = value                    # forward-compat passthrough
     return cfg
 
 
@@ -150,7 +186,15 @@ def update_config(**kwargs) -> dict[str, Any]:
     for key, value in kwargs.items():
         if key not in DEFAULT_CONFIG:
             raise ValueError(f"Unknown config key: '{key}'. Valid keys: {list(DEFAULT_CONFIG)}")
-        cfg[key] = value
+        coerced, ok = _coerce_key(key, value)
+        if not ok:
+            # Write boundary fails FAST (unlike load, which degrades): the caller
+            # is program code passing a wrong type, not a hand-edited file.
+            raise ValueError(
+                f"Invalid type for '{key}': expected "
+                f"{type(DEFAULT_CONFIG[key]).__name__}, got {type(value).__name__}"
+            )
+        cfg[key] = coerced
     return save_config(cfg)
 
 

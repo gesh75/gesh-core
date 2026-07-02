@@ -104,3 +104,67 @@ def test_corrupt_config_degrades_to_defaults(tmp_path, monkeypatch):
     cfg = ac.load_config()                                 # must not raise
     assert cfg["auto_trade"] is False
     assert p.read_text().startswith('{"auto_trade": tru')  # corrupt file preserved
+
+
+# ─── boundary type validation (PR-2) ──────────────────────────────────────────
+
+def test_wrong_type_numeric_falls_back_to_default(tmp_path, monkeypatch):
+    # A hand-edited '"max_stock_per_trade": "9999"' must not reach the execution
+    # gate as a str (trade_usd > "9999" raises TypeError inside validate_action).
+    p = tmp_path / "gesh_config.json"
+    cfg = dict(ac.DEFAULT_CONFIG)
+    cfg["auto_trade"] = True                   # reach the size-cap check
+    cfg["max_stock_per_trade"] = "9999"
+    p.write_text(json.dumps(cfg))
+    monkeypatch.setenv("GESH_CONFIG_PATH", str(p))
+
+    loaded = ac.load_config()
+    assert loaded["max_stock_per_trade"] == 5000.0         # default restored
+
+    ok, reason = ac.validate_action("BUY", "NVDA", trade_usd=6000,
+                                    open_positions=0, current_cash=100_000)
+    assert ok is False and "exceeds max" in reason         # gate works, no TypeError
+
+
+def test_wrong_type_bool_fails_safe(tmp_path, monkeypatch):
+    # auto_trade is the live-execution gate: a truthy non-bool ("yes", 1) must
+    # fall back to the SAFE default False, never accidentally enable execution.
+    p = tmp_path / "gesh_config.json"
+    cfg = dict(ac.DEFAULT_CONFIG)
+    cfg["auto_trade"] = "yes"
+    p.write_text(json.dumps(cfg))
+    monkeypatch.setenv("GESH_CONFIG_PATH", str(p))
+
+    loaded = ac.load_config()
+    assert loaded["auto_trade"] is False
+
+
+def test_valid_overrides_and_none_default_keys_pass_through(tmp_path, monkeypatch):
+    p = tmp_path / "gesh_config.json"
+    cfg = dict(ac.DEFAULT_CONFIG)
+    cfg["max_open_positions"] = 8            # valid int
+    cfg["stock_allocation_pct"] = 55         # int for a float key — accepted
+    cfg["total_buying_power"] = 25_000.0     # None-default runtime key
+    p.write_text(json.dumps(cfg))
+    monkeypatch.setenv("GESH_CONFIG_PATH", str(p))
+
+    loaded = ac.load_config()
+    assert loaded["max_open_positions"] == 8
+    assert loaded["stock_allocation_pct"] == 55.0
+    assert loaded["total_buying_power"] == 25_000.0
+
+
+def test_unknown_keys_still_pass_through(tmp_path, monkeypatch):
+    # Forward-compat: a newer consumer's extra key survives a round-trip.
+    p = tmp_path / "gesh_config.json"
+    cfg = dict(ac.DEFAULT_CONFIG)
+    cfg["future_knob"] = {"nested": True}
+    p.write_text(json.dumps(cfg))
+    monkeypatch.setenv("GESH_CONFIG_PATH", str(p))
+    assert ac.load_config()["future_knob"] == {"nested": True}
+
+
+def test_update_config_rejects_wrong_type():
+    import pytest
+    with pytest.raises(ValueError, match="auto_trade"):
+        ac.update_config(auto_trade="yes")
