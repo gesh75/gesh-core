@@ -114,3 +114,52 @@ def test_fetch_ohlcv_nan_rows_stay_aligned(monkeypatch):
     # Row pairing preserved: index 10's row is gone from every array.
     assert float(df.loc[11, "Close"]) in out["close"]
     assert float(df.loc[10, "Close"]) not in out["close"]
+
+
+# ─── open-boundary SPY cache invalidation (audit: RS window alignment) ────────
+
+def _et_ts(hour: int, minute: int) -> float:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    return datetime(2026, 7, 2, hour, minute, tzinfo=ZoneInfo("America/New_York")).timestamp()
+
+
+def test_crossed_market_open_pre_to_post():
+    from gesh_core.market_fetch import _crossed_market_open
+    assert _crossed_market_open(_et_ts(9, 25), _et_ts(9, 35)) is True   # spans 09:30
+
+
+def test_not_crossed_within_session_or_pre_open():
+    from gesh_core.market_fetch import _crossed_market_open
+    assert _crossed_market_open(_et_ts(10, 0), _et_ts(10, 20)) is False   # both post-open
+    assert _crossed_market_open(_et_ts(9, 0), _et_ts(9, 20)) is False     # both pre-open
+
+
+def test_spy_cache_invalidated_across_open(monkeypatch):
+    """A pre-open cached SPY array must NOT be served post-open — it lacks
+    today's bar while symbol fetches carry it (one-session RS window offset)."""
+    import numpy as np
+    from gesh_core import market_fetch as mf
+
+    calls = {"n": 0}
+
+    def fake_fetch(*a, **k):
+        calls["n"] += 1
+        import pandas as pd
+        idx = pd.date_range("2026-01-01", periods=40)
+        return pd.DataFrame({"Close": np.linspace(100, 110, 40)}, index=idx)
+
+    monkeypatch.setattr(mf, "yf_download_with_retry", fake_fetch)
+    monkeypatch.setattr(mf, "_SPY_CACHE", {})
+
+    monkeypatch.setattr(mf.time, "time", lambda: _et_ts(9, 25))
+    assert mf.fetch_spy_close() is not None
+    assert calls["n"] == 1
+
+    monkeypatch.setattr(mf.time, "time", lambda: _et_ts(9, 35))   # crossed 09:30
+    assert mf.fetch_spy_close() is not None
+    assert calls["n"] == 2, "pre-open cache must be refetched after the open"
+
+    monkeypatch.setattr(mf.time, "time", lambda: _et_ts(9, 45))   # same session
+    assert mf.fetch_spy_close() is not None
+    assert calls["n"] == 2, "post-open cache serves normally within TTL"

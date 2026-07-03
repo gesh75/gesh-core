@@ -109,10 +109,34 @@ _SPY_CACHE: dict[str, tuple[float, np.ndarray]] = {}
 _SPY_CACHE_TTL_S = 30 * 60   # 30 min
 
 
+def _crossed_market_open(cached_at: float, now: float) -> bool:
+    """True if the 09:30 ET session open falls between the two timestamps.
+
+    A SPY array cached PRE-open lacks today's bar, while symbol fetches made
+    POST-open carry it — the relative-strength node then compares windows
+    offset by one session for up to the cache TTL. Invalidate across the
+    boundary instead. (Cross-day gaps are already covered by the 30-min TTL.)
+    """
+    try:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        et = ZoneInfo("America/New_York")
+        a = datetime.fromtimestamp(cached_at, et)
+        b = datetime.fromtimestamp(now, et)
+        session_open = a.replace(hour=9, minute=30, second=0, microsecond=0)
+        return a < session_open <= b
+    except Exception:  # noqa: BLE001 — guard must never break the fetch
+        return False
+
+
 def fetch_spy_close(days: int = 40) -> np.ndarray | None:
     """SPY close array for the relative-strength benchmark (TTL-cached per process)."""
     cached = _SPY_CACHE.get("close")
-    if cached is not None and (time.time() - cached[0]) <= _SPY_CACHE_TTL_S:
+    if (
+        cached is not None
+        and (time.time() - cached[0]) <= _SPY_CACHE_TTL_S
+        and not _crossed_market_open(cached[0], time.time())
+    ):
         return cached[1]
     raw = yf_download_with_retry("SPY", period="3mo", interval="1d", auto_adjust=True)
     if raw is None or len(raw) < 5:
