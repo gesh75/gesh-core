@@ -13,7 +13,6 @@ from gesh_core.trading.autopilot_core import (
     stop_sweep_intent,
 )
 
-
 # ── entry_floor_blocks ────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("action,raw,floor,blocked", [

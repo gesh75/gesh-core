@@ -139,6 +139,7 @@ def test_spy_cache_invalidated_across_open(monkeypatch):
     """A pre-open cached SPY array must NOT be served post-open — it lacks
     today's bar while symbol fetches carry it (one-session RS window offset)."""
     import numpy as np
+
     from gesh_core import market_fetch as mf
 
     calls = {"n": 0}
