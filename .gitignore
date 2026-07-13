@@ -16,3 +16,6 @@ gesh_financial.db
 
 # macOS Finder metadata
 .DS_Store
+
+# pytest --cov artifact — regenerated on every test run
+.coverage
