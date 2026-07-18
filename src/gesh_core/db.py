@@ -224,7 +224,17 @@ def get_analysis_by_id(run_id: int) -> dict | None:
 # ─── Equity Snapshots (for ECG) ───────────────────────────────────────────────
 
 def log_equity_snapshot(holdings: list[dict]) -> None:
-    """Persist current equity/price for every holding."""
+    """Persist current equity/price for every holding.
+
+    [CLAUDE 2026-07-18] audit D-07: rows with a non-positive price are degenerate
+    (218 such rows found, including frozen live NVDA rows) — refuse to persist
+    them instead of poisoning the ECG/history tables."""
+    bad = [h.get("symbol") for h in holdings if float(h.get("current_price") or 0) <= 0]
+    if bad:
+        print(f"[db] WARNING: skipping equity snapshot rows with price<=0: {bad}")
+        holdings = [h for h in holdings if float(h.get("current_price") or 0) > 0]
+    if not holdings:
+        return
     now = datetime.now(UTC).isoformat()
     with _conn() as con:
         con.executemany(
