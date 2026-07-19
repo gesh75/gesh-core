@@ -19,3 +19,6 @@ gesh_financial.db
 
 # pytest --cov artifact — regenerated on every test run
 .coverage
+
+# Local source safety copies created during audited repairs
+*.bak_*
