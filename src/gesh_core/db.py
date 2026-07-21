@@ -104,9 +104,9 @@ CREATE INDEX IF NOT EXISTS idx_pt_symbol  ON paper_trades(symbol, entry_time);
 def connect(path: Any = DB_PATH, **kw: Any) -> sqlite3.Connection:
     """Open a SQLite connection tuned for concurrent access.
 
-    Enables WAL journaling + a 30s busy timeout so the many autopilot /
-    scheduler writers across the codebase don't hit 'database is locked'
-    when they contend for the same DB file.
+    Enables WAL journaling, a 30s busy timeout, and foreign-key enforcement so
+    the many autopilot / scheduler writers across the codebase don't hit
+    'database is locked' and so ledger FK constraints are actually enforced.
 
     Returns a plain ``sqlite3.Connection`` — callers manage commit/close
     (directly or via ``with``) exactly as they would with ``sqlite3.connect``.
@@ -115,6 +115,7 @@ def connect(path: Any = DB_PATH, **kw: Any) -> sqlite3.Connection:
     con = sqlite3.connect(path, **kw)
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA busy_timeout=30000")
+    con.execute("PRAGMA foreign_keys = ON")
     return con
 
 
