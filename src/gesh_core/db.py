@@ -4,6 +4,7 @@ db.py — SQLite persistence layer for Gesh Financial.
 Tables:
   analysis_runs   — every deep-analysis result (portfolio-level + per-holding JSON)
   equity_snapshots — daily equity snapshot per holding (drives ECG state machine)
+  + Phase 4A ledger tables via gesh_core.ledger.schema.init_ledger_tables
 """
 
 from __future__ import annotations
@@ -130,9 +131,16 @@ def _conn():
 
 
 def init_db() -> None:
-    """Ensure schema exists. Safe to call multiple times."""
+    """Ensure schema exists. Safe to call multiple times.
+
+    Also ensures Phase 4A ledger tables exist (additive CREATE IF NOT EXISTS).
+    """
     with _conn():
         pass
+    # Late import avoids any risk of circular import at module load time.
+    from gesh_core.ledger.schema import init_ledger_tables
+
+    init_ledger_tables(DB_PATH)
 
 
 # ─── Analysis Runs ────────────────────────────────────────────────────────────
