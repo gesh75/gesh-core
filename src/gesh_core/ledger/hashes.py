@@ -6,7 +6,8 @@ execution run and does NOT imply that an LLM will produce the same output.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from gesh_core.ledger.canonical import content_hash
 from gesh_core.ledger.versions import (

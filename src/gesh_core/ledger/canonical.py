@@ -21,24 +21,26 @@ import hashlib
 import json
 import math
 from dataclasses import asdict, is_dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any
 from uuid import UUID
 
-_SECRET_FIELD_NAMES = frozenset({
-    "password",
-    "password_hash",
-    "secret",
-    "token",
-    "api_key",
-    "apikey",
-    "access_token",
-    "refresh_token",
-    "authorization",
-    "private_key",
-})
+_SECRET_FIELD_NAMES = frozenset(
+    {
+        "password",
+        "password_hash",
+        "secret",
+        "token",
+        "api_key",
+        "apikey",
+        "access_token",
+        "refresh_token",
+        "authorization",
+        "private_key",
+    }
+)
 
 
 class CanonicalizationError(ValueError):
@@ -47,9 +49,7 @@ class CanonicalizationError(ValueError):
 
 def _normalize_float(value: float) -> float:
     if math.isnan(value) or math.isinf(value):
-        raise CanonicalizationError(
-            f"non-finite float is not allowed in canonical form: {value!r}"
-        )
+        raise CanonicalizationError(f"non-finite float is not allowed in canonical form: {value!r}")
     if value == 0.0:
         return 0.0
     return value
@@ -77,9 +77,9 @@ def canonicalize(value: Any, *, _allow_secrets: bool = False) -> Any:
 
     if isinstance(value, datetime):
         if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
+            value = value.replace(tzinfo=UTC)
         else:
-            value = value.astimezone(timezone.utc)
+            value = value.astimezone(UTC)
         text = value.isoformat()
         if text.endswith("+00:00"):
             text = text[:-6] + "Z"
@@ -117,9 +117,7 @@ def canonicalize(value: Any, *, _allow_secrets: bool = False) -> Any:
         )
         return items
 
-    raise CanonicalizationError(
-        f"unsupported type for canonicalization: {type(value).__name__}"
-    )
+    raise CanonicalizationError(f"unsupported type for canonicalization: {type(value).__name__}")
 
 
 def canonical_json(value: Any, *, allow_secrets: bool = False) -> str:
@@ -134,9 +132,7 @@ def canonical_json(value: Any, *, allow_secrets: bool = False) -> str:
     )
 
 
-def content_hash(
-    value: Any, *, prefix: str | None = None, allow_secrets: bool = False
-) -> str:
+def content_hash(value: Any, *, prefix: str | None = None, allow_secrets: bool = False) -> str:
     """SHA-256 hex digest of the canonical JSON form of *value*.
 
     If *prefix* is provided, the digest is returned as ``{prefix}_{hex}``.

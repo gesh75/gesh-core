@@ -14,7 +14,6 @@ from gesh_core.ledger.hashes import (
     portfolio_snapshot_hash,
 )
 from gesh_core.ledger.repository import (
-    get_market_quote_snapshot,
     get_portfolio_snapshot,
     get_recommendation,
     insert_or_get_market_quote_snapshot,
@@ -39,9 +38,7 @@ def test_schema_initialization_idempotent(db_path: Path):
     with sqlite3.connect(db_path) as con:
         names = {
             r[0]
-            for r in con.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()
+            for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         }
     assert "portfolio_snapshots" in names
     assert "market_quote_snapshots" in names
@@ -51,13 +48,9 @@ def test_schema_initialization_idempotent(db_path: Path):
 def test_preserves_legacy_tables(tmp_path: Path):
     path = tmp_path / "with_legacy.db"
     with sqlite3.connect(path) as con:
-        con.execute(
-            "CREATE TABLE analysis_runs (id INTEGER PRIMARY KEY, run_at TEXT)"
-        )
+        con.execute("CREATE TABLE analysis_runs (id INTEGER PRIMARY KEY, run_at TEXT)")
         con.execute("INSERT INTO analysis_runs (run_at) VALUES ('2026-01-01')")
-        con.execute(
-            "CREATE TABLE paper_trades (id INTEGER PRIMARY KEY, symbol TEXT)"
-        )
+        con.execute("CREATE TABLE paper_trades (id INTEGER PRIMARY KEY, symbol TEXT)")
         con.execute("INSERT INTO paper_trades (symbol) VALUES ('NVDA')")
         con.commit()
     init_ledger_tables(path)
@@ -140,15 +133,8 @@ def test_portfolio_insert_get_dedup_and_tenant_isolation(db_path: Path):
     assert other["tenant_id"] == "customer-uuid-1"
     assert other["id"] != r1["id"]
 
-    assert get_portfolio_snapshot(
-        r1["id"], tenant_id=OWNER_TENANT_ID, db_path=db_path
-    )
-    assert (
-        get_portfolio_snapshot(
-            r1["id"], tenant_id="customer-uuid-1", db_path=db_path
-        )
-        is None
-    )
+    assert get_portfolio_snapshot(r1["id"], tenant_id=OWNER_TENANT_ID, db_path=db_path)
+    assert get_portfolio_snapshot(r1["id"], tenant_id="customer-uuid-1", db_path=db_path) is None
 
 
 def test_duplicate_portfolio_snapshot_returns_existing(db_path: Path):
@@ -300,15 +286,10 @@ def test_recommendation_roundtrip_duplicate_and_list(db_path: Path):
     assert rec["recommendation_id"] == "rec_test_001"
     assert rec["intent_id"] is None
 
-    got = get_recommendation(
-        "rec_test_001", tenant_id=OWNER_TENANT_ID, db_path=db_path
-    )
+    got = get_recommendation("rec_test_001", tenant_id=OWNER_TENANT_ID, db_path=db_path)
     assert got is not None
     assert got["action"] == "HOLD"
-    assert (
-        get_recommendation("rec_test_001", tenant_id="other-tenant", db_path=db_path)
-        is None
-    )
+    assert get_recommendation("rec_test_001", tenant_id="other-tenant", db_path=db_path) is None
 
     with pytest.raises(sqlite3.IntegrityError):
         insert_recommendation(
@@ -332,20 +313,14 @@ def test_recommendation_roundtrip_duplicate_and_list(db_path: Path):
         action="BUY",
         db_path=db_path,
     )
-    listed = list_recommendations(
-        tenant_id=OWNER_TENANT_ID, limit=10, db_path=db_path
-    )
+    listed = list_recommendations(tenant_id=OWNER_TENANT_ID, limit=10, db_path=db_path)
     assert len(listed) == 2
     assert listed[0]["recommendation_id"] == "rec_test_002"
 
-    limited = list_recommendations(
-        tenant_id=OWNER_TENANT_ID, limit=1, db_path=db_path
-    )
+    limited = list_recommendations(tenant_id=OWNER_TENANT_ID, limit=1, db_path=db_path)
     assert len(limited) == 1
 
-    by_symbol = list_recommendations(
-        tenant_id=OWNER_TENANT_ID, symbol="nvda", db_path=db_path
-    )
+    by_symbol = list_recommendations(tenant_id=OWNER_TENANT_ID, symbol="nvda", db_path=db_path)
     assert len(by_symbol) == 1
     assert by_symbol[0]["symbol"] == "NVDA"
 

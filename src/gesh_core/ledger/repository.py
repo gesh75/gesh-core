@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any, Mapping
+from typing import Any
 
 from gesh_core.db import connect
 from gesh_core.db_path import resolve_db_path
@@ -62,9 +63,7 @@ def _require_same_tenant_row(
         raise ValueError(f"{label} {row_id!r} does not exist")
     owner = row["tenant_id"] if isinstance(row, sqlite3.Row) else row[0]
     if owner != tenant_id:
-        raise ValueError(
-            f"{label} {row_id!r} belongs to tenant {owner!r}, not {tenant_id!r}"
-        )
+        raise ValueError(f"{label} {row_id!r} belongs to tenant {owner!r}, not {tenant_id!r}")
 
 
 def insert_or_get_portfolio_snapshot(
@@ -113,9 +112,17 @@ def insert_or_get_portfolio_snapshot(
                 ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
-                    tenant_id, snapshot_hash, captured, base_currency,
-                    total_equity, cash, buying_power, holdings_json,
-                    risk_json, PORTFOLIO_SNAPSHOT_SCHEMA_VERSION, created,
+                    tenant_id,
+                    snapshot_hash,
+                    captured,
+                    base_currency,
+                    total_equity,
+                    cash,
+                    buying_power,
+                    holdings_json,
+                    risk_json,
+                    PORTFOLIO_SNAPSHOT_SCHEMA_VERSION,
+                    created,
                 ),
             )
             con.commit()
@@ -201,10 +208,23 @@ def insert_or_get_market_quote_snapshot(
                 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
-                    tenant_id, snapshot_hash, symbol.upper(), asset_type, provider,
-                    as_of, available_time, retrieved, bid, ask, last, volume,
-                    quality_state, quality_reason, payload_json,
-                    MARKET_QUOTE_SNAPSHOT_SCHEMA_VERSION, created,
+                    tenant_id,
+                    snapshot_hash,
+                    symbol.upper(),
+                    asset_type,
+                    provider,
+                    as_of,
+                    available_time,
+                    retrieved,
+                    bid,
+                    ask,
+                    last,
+                    volume,
+                    quality_state,
+                    quality_reason,
+                    payload_json,
+                    MARKET_QUOTE_SNAPSHOT_SCHEMA_VERSION,
+                    created,
                 ),
             )
             con.commit()
@@ -323,15 +343,32 @@ def insert_recommendation(
             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
-                recommendation_id, analysis_run_id, tenant_id, symbol.upper(), asset_type,
-                context_hash, portfolio_snapshot_id, market_quote_snapshot_id,
-                decision_at, source, action, conviction, confidence,
-                target_position_pct, stop_price, target_price,
+                recommendation_id,
+                analysis_run_id,
+                tenant_id,
+                symbol.upper(),
+                asset_type,
+                context_hash,
+                portfolio_snapshot_id,
+                market_quote_snapshot_id,
+                decision_at,
+                source,
+                action,
+                conviction,
+                confidence,
+                target_position_pct,
+                stop_price,
+                target_price,
                 _json_dumps(consensus) if consensus is not None else None,
                 _json_dumps(quant_summary) if quant_summary is not None else None,
                 _json_dumps(ai_output) if ai_output is not None else None,
-                ai_provider, ai_model, prompt_bundle_hash, intent_id,
-                RECOMMENDATION_SCHEMA_VERSION, supersedes_recommendation_id, created,
+                ai_provider,
+                ai_model,
+                prompt_bundle_hash,
+                intent_id,
+                RECOMMENDATION_SCHEMA_VERSION,
+                supersedes_recommendation_id,
+                created,
             ),
         )
         con.commit()
