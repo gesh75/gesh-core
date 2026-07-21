@@ -4,6 +4,7 @@ db.py — SQLite persistence layer for Gesh Financial.
 Tables:
   analysis_runs   — every deep-analysis result (portfolio-level + per-holding JSON)
   equity_snapshots — daily equity snapshot per holding (drives ECG state machine)
+  + Phase 4A ledger tables via gesh_core.ledger.schema.init_ledger_tables
 """
 
 from __future__ import annotations
@@ -103,9 +104,9 @@ CREATE INDEX IF NOT EXISTS idx_pt_symbol  ON paper_trades(symbol, entry_time);
 def connect(path: Any = DB_PATH, **kw: Any) -> sqlite3.Connection:
     """Open a SQLite connection tuned for concurrent access.
 
-    Enables WAL journaling + a 30s busy timeout so the many autopilot /
-    scheduler writers across the codebase don't hit 'database is locked'
-    when they contend for the same DB file.
+    Enables WAL journaling, a 30s busy timeout, and foreign-key enforcement so
+    the many autopilot / scheduler writers across the codebase don't hit
+    'database is locked' and so ledger FK constraints are actually enforced.
 
     Returns a plain ``sqlite3.Connection`` — callers manage commit/close
     (directly or via ``with``) exactly as they would with ``sqlite3.connect``.
@@ -114,6 +115,7 @@ def connect(path: Any = DB_PATH, **kw: Any) -> sqlite3.Connection:
     con = sqlite3.connect(path, **kw)
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA busy_timeout=30000")
+    con.execute("PRAGMA foreign_keys = ON")
     return con
 
 
@@ -130,9 +132,16 @@ def _conn():
 
 
 def init_db() -> None:
-    """Ensure schema exists. Safe to call multiple times."""
+    """Ensure schema exists. Safe to call multiple times.
+
+    Also ensures Phase 4A ledger tables exist (additive CREATE IF NOT EXISTS).
+    """
     with _conn():
         pass
+    # Late import avoids any risk of circular import at module load time.
+    from gesh_core.ledger.schema import init_ledger_tables
+
+    init_ledger_tables(DB_PATH)
 
 
 # ─── Analysis Runs ────────────────────────────────────────────────────────────
