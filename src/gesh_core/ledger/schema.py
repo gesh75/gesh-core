@@ -114,6 +114,7 @@ def init_ledger_tables(path: Any | None = None) -> None:
     try:
         con.execute("PRAGMA journal_mode=WAL")
         con.execute("PRAGMA busy_timeout=30000")
+        con.execute("PRAGMA foreign_keys = ON")
         con.executescript(LEDGER_DDL)
         con.commit()
     finally:

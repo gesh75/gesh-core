@@ -44,6 +44,29 @@ def _row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
     return dict(row)
 
 
+def _require_same_tenant_row(
+    con: sqlite3.Connection,
+    *,
+    table: str,
+    id_column: str,
+    row_id: Any,
+    tenant_id: str,
+    label: str,
+) -> None:
+    """Reject missing or cross-tenant foreign references with ValueError."""
+    row = con.execute(
+        f"SELECT tenant_id FROM {table} WHERE {id_column}=?",
+        (row_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"{label} {row_id!r} does not exist")
+    owner = row["tenant_id"] if isinstance(row, sqlite3.Row) else row[0]
+    if owner != tenant_id:
+        raise ValueError(
+            f"{label} {row_id!r} belongs to tenant {owner!r}, not {tenant_id!r}"
+        )
+
+
 def insert_or_get_portfolio_snapshot(
     *,
     tenant_id: str,
@@ -57,7 +80,11 @@ def insert_or_get_portfolio_snapshot(
     captured_at: str | None = None,
     db_path: Any | None = None,
 ) -> dict[str, Any]:
-    """Insert portfolio snapshot or return existing row for (tenant, hash)."""
+    """Insert portfolio snapshot or return existing row for (tenant, hash).
+
+    Conflict-safe: concurrent writers that hit UNIQUE(tenant_id, snapshot_hash)
+    re-select and return the existing row instead of raising.
+    """
     tenant_id = _require_tenant(tenant_id)
     if not snapshot_hash:
         raise ValueError("snapshot_hash is required")
@@ -76,25 +103,35 @@ def insert_or_get_portfolio_snapshot(
         ).fetchone()
         if existing:
             return dict(existing)
-        cur = con.execute(
-            """
-            INSERT INTO portfolio_snapshots (
-                tenant_id, snapshot_hash, captured_at, base_currency,
-                total_equity, cash, buying_power, holdings_json,
-                risk_state_json, schema_version, created_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                tenant_id, snapshot_hash, captured, base_currency,
-                total_equity, cash, buying_power, holdings_json,
-                risk_json, PORTFOLIO_SNAPSHOT_SCHEMA_VERSION, created,
-            ),
-        )
-        con.commit()
-        row = con.execute(
-            "SELECT * FROM portfolio_snapshots WHERE id=?", (cur.lastrowid,)
-        ).fetchone()
-        return dict(row)
+        try:
+            cur = con.execute(
+                """
+                INSERT INTO portfolio_snapshots (
+                    tenant_id, snapshot_hash, captured_at, base_currency,
+                    total_equity, cash, buying_power, holdings_json,
+                    risk_state_json, schema_version, created_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    tenant_id, snapshot_hash, captured, base_currency,
+                    total_equity, cash, buying_power, holdings_json,
+                    risk_json, PORTFOLIO_SNAPSHOT_SCHEMA_VERSION, created,
+                ),
+            )
+            con.commit()
+            row = con.execute(
+                "SELECT * FROM portfolio_snapshots WHERE id=?", (cur.lastrowid,)
+            ).fetchone()
+            return dict(row)
+        except sqlite3.IntegrityError:
+            con.rollback()
+            row = con.execute(
+                "SELECT * FROM portfolio_snapshots WHERE tenant_id=? AND snapshot_hash=?",
+                (tenant_id, snapshot_hash),
+            ).fetchone()
+            if row is None:
+                raise
+            return dict(row)
 
 
 def get_portfolio_snapshot(
@@ -131,6 +168,10 @@ def insert_or_get_market_quote_snapshot(
     payload: Mapping[str, Any] | None = None,
     db_path: Any | None = None,
 ) -> dict[str, Any]:
+    """Insert market quote snapshot or return existing row for (tenant, hash).
+
+    Conflict-safe under concurrent writers (UNIQUE tenant_id + snapshot_hash).
+    """
     tenant_id = _require_tenant(tenant_id)
     if not snapshot_hash:
         raise ValueError("snapshot_hash is required")
@@ -150,26 +191,36 @@ def insert_or_get_market_quote_snapshot(
         ).fetchone()
         if existing:
             return dict(existing)
-        cur = con.execute(
-            """
-            INSERT INTO market_quote_snapshots (
-                tenant_id, snapshot_hash, symbol, asset_type, provider,
-                as_of, available_time, retrieved_at, bid, ask, last, volume,
-                quality_state, quality_reason, payload_json, schema_version, created_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                tenant_id, snapshot_hash, symbol.upper(), asset_type, provider,
-                as_of, available_time, retrieved, bid, ask, last, volume,
-                quality_state, quality_reason, payload_json,
-                MARKET_QUOTE_SNAPSHOT_SCHEMA_VERSION, created,
-            ),
-        )
-        con.commit()
-        row = con.execute(
-            "SELECT * FROM market_quote_snapshots WHERE id=?", (cur.lastrowid,)
-        ).fetchone()
-        return dict(row)
+        try:
+            cur = con.execute(
+                """
+                INSERT INTO market_quote_snapshots (
+                    tenant_id, snapshot_hash, symbol, asset_type, provider,
+                    as_of, available_time, retrieved_at, bid, ask, last, volume,
+                    quality_state, quality_reason, payload_json, schema_version, created_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    tenant_id, snapshot_hash, symbol.upper(), asset_type, provider,
+                    as_of, available_time, retrieved, bid, ask, last, volume,
+                    quality_state, quality_reason, payload_json,
+                    MARKET_QUOTE_SNAPSHOT_SCHEMA_VERSION, created,
+                ),
+            )
+            con.commit()
+            row = con.execute(
+                "SELECT * FROM market_quote_snapshots WHERE id=?", (cur.lastrowid,)
+            ).fetchone()
+            return dict(row)
+        except sqlite3.IntegrityError:
+            con.rollback()
+            row = con.execute(
+                "SELECT * FROM market_quote_snapshots WHERE tenant_id=? AND snapshot_hash=?",
+                (tenant_id, snapshot_hash),
+            ).fetchone()
+            if row is None:
+                raise
+            return dict(row)
 
 
 def get_market_quote_snapshot(
@@ -215,7 +266,10 @@ def insert_recommendation(
     supersedes_recommendation_id: str | None = None,
     db_path: Any | None = None,
 ) -> dict[str, Any]:
-    """Insert a recommendation. Raises IntegrityError on duplicate ID."""
+    """Insert a recommendation. Raises IntegrityError on duplicate ID.
+
+    Snapshot and supersedes references must exist and belong to the same tenant.
+    """
     tenant_id = _require_tenant(tenant_id)
     if not recommendation_id:
         raise ValueError("recommendation_id is required")
@@ -229,6 +283,33 @@ def insert_recommendation(
 
     with connect(path) as con:
         con.row_factory = sqlite3.Row
+        if portfolio_snapshot_id is not None:
+            _require_same_tenant_row(
+                con,
+                table="portfolio_snapshots",
+                id_column="id",
+                row_id=portfolio_snapshot_id,
+                tenant_id=tenant_id,
+                label="portfolio_snapshot_id",
+            )
+        if market_quote_snapshot_id is not None:
+            _require_same_tenant_row(
+                con,
+                table="market_quote_snapshots",
+                id_column="id",
+                row_id=market_quote_snapshot_id,
+                tenant_id=tenant_id,
+                label="market_quote_snapshot_id",
+            )
+        if supersedes_recommendation_id is not None:
+            _require_same_tenant_row(
+                con,
+                table="recommendations",
+                id_column="recommendation_id",
+                row_id=supersedes_recommendation_id,
+                tenant_id=tenant_id,
+                label="supersedes_recommendation_id",
+            )
         con.execute(
             """
             INSERT INTO recommendations (
