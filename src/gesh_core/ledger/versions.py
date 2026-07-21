@@ -17,6 +17,11 @@ PORTFOLIO_SNAPSHOT_SCHEMA_VERSION = 1
 MARKET_QUOTE_SNAPSHOT_SCHEMA_VERSION = 1
 RECOMMENDATION_SCHEMA_VERSION = 1
 CONTEXT_HASH_SCHEMA_VERSION = 1
+# Versions the recommendation-ID identity payload (tenant_id, symbol,
+# decision_type, context_hash). Deliberately NOT part of version_bundle():
+# it versions the ID scheme, not the decision context, so bumping it must not
+# perturb context hashes.
+RECOMMENDATION_ID_SCHEMA_VERSION = 1
 
 # Engine / model versions (semver strings).
 CONSENSUS_ENGINE_VERSION = "1.0.0"
