@@ -405,3 +405,61 @@ def test_skipped_decision_shape(db_path: Path):
         SkippedDecision(symbol="BAD!!SYM", decision_type="consensus", reason="invalid_symbol")
         in result.skipped
     )
+
+
+# ── identity v2: separate executions over one context (host-shaped) ──────────
+
+
+def test_second_execution_same_context_new_ids_no_conflict(db_path: Path):
+    """The production Phase 4B failure, reproduced at the adapter level.
+
+    Same engine_results snapshot/context, only ``ai_result_ran_at`` advances
+    (a re-run of the daily chain over an unchanged book). Under identity v1 the
+    second recording raised LedgerConflictError; under v2 it is a distinct,
+    coexisting set of recommendations.
+    """
+    eng_t1 = _eng()
+    eng_t1["ai_result_ran_at"] = "2026-07-20T09:30:00+00:00"
+    first = _record(db_path, eng=eng_t1)
+    assert len(first.recording.inserted_ids) >= 1
+
+    eng_t2 = _eng()
+    eng_t2["ai_result_ran_at"] = "2026-07-20T15:45:00+00:00"
+    second = _record(db_path, eng=eng_t2)  # v1: LedgerConflictError
+
+    assert second.recording.context_hash == first.recording.context_hash
+    assert set(second.recording.recommendation_ids).isdisjoint(first.recording.recommendation_ids)
+    assert len(second.recording.inserted_ids) == len(second.recording.recommendation_ids)
+    assert second.recording.reused_ids == ()
+
+    for rid in list(first.recording.recommendation_ids) + list(second.recording.recommendation_ids):
+        assert get_recommendation(rid, tenant_id=TENANT, db_path=db_path) is not None
+
+
+def test_exact_replay_of_same_payload_is_idempotent(db_path: Path):
+    """Replaying the exact T2 payload reuses every row and spends no new identity."""
+    eng_t2 = _eng()
+    eng_t2["ai_result_ran_at"] = "2026-07-20T15:45:00+00:00"
+
+    original = _record(db_path, eng=eng_t2)
+    assert len(original.recording.inserted_ids) >= 1
+
+    replay = _record(db_path, eng=eng_t2)
+
+    assert replay.recording.recommendation_ids == original.recording.recommendation_ids
+    assert replay.recording.inserted_ids == ()
+    assert len(replay.recording.reused_ids) == len(original.recording.recommendation_ids)
+    assert len(replay.recording.reused_ids) > 0
+
+
+def test_replay_with_different_analysis_run_id_still_reuses(db_path: Path):
+    """analysis_run_id is provenance-only: it must not fork identity."""
+    eng_t2 = _eng()
+    eng_t2["ai_result_ran_at"] = "2026-07-20T15:45:00+00:00"
+
+    original = _record(db_path, eng=eng_t2, analysis_run_id=178)
+    replay = _record(db_path, eng=eng_t2, analysis_run_id=179)
+
+    assert replay.recording.recommendation_ids == original.recording.recommendation_ids
+    assert replay.recording.inserted_ids == ()
+    assert len(replay.recording.reused_ids) > 0

@@ -223,15 +223,31 @@ def normalize_timestamp_utc(value: datetime | str, *, field: str) -> str:
 
 
 def recommendation_id_for(
-    *, tenant_id: str, symbol: str, decision_type: str, context_hash: str
+    *,
+    tenant_id: str,
+    symbol: str,
+    decision_type: str,
+    context_hash: str,
+    decision_at: datetime | str,
 ) -> str:
-    """Deterministic recommendation identity: ``rec_<sha256>`` of the canonical
-    identity payload (tenant_id, symbol, decision_type, context_hash).
+    """Deterministic recommendation identity (v2): ``rec_<sha256>`` of the
+    canonical identity payload (tenant_id, symbol, decision_type, context_hash,
+    normalized decision_at).
 
-    Everything else about a recommendation — including analysis_run_id — is
+    ``decision_at`` is part of identity because it is also part of the stored
+    content fingerprint. Omitting it (v1) made two executions over an identical
+    decision-input context collide: same ID, different content -> spurious
+    :class:`LedgerConflictError`. ``context_hash`` deliberately identifies the
+    decision *input context*, not one execution run, so the execution timestamp
+    is what separates two runs.
+
+    Everything else about a recommendation — including analysis_run_id — remains
     stored metadata, not identity. Identical identity payloads yield identical
-    IDs (idempotent retry); any difference in tenant, symbol, type, or context
-    yields a different ID (full 256-bit digest, no truncation).
+    IDs (idempotent retry); any difference in tenant, symbol, type, context, or
+    decision time yields a different ID (full 256-bit digest, no truncation).
+
+    ``decision_at`` is normalized to UTC before hashing, so equivalent instants
+    written in different notations produce the same identity.
     """
     payload = {
         "schema_version": RECOMMENDATION_ID_SCHEMA_VERSION,
@@ -239,6 +255,7 @@ def recommendation_id_for(
         "symbol": symbol,
         "decision_type": decision_type,
         "context_hash": context_hash,
+        "decision_at": normalize_timestamp_utc(decision_at, field="decision_at"),
     }
     return content_hash(payload, prefix="rec")
 
@@ -434,7 +451,11 @@ def record_analysis_decision(
         if not action:
             raise LedgerValidationError(f"decision {sym}/{dtype}: action is required")
         rid = recommendation_id_for(
-            tenant_id=tenant, symbol=sym, decision_type=dtype, context_hash=ctx
+            tenant_id=tenant,
+            symbol=sym,
+            decision_type=dtype,
+            context_hash=ctx,
+            decision_at=decision_at_norm,
         )
         if rid in seen_ids:
             raise LedgerValidationError(f"duplicate decision {sym}/{dtype} in this recording")

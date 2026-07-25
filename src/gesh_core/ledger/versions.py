@@ -18,10 +18,17 @@ MARKET_QUOTE_SNAPSHOT_SCHEMA_VERSION = 1
 RECOMMENDATION_SCHEMA_VERSION = 1
 CONTEXT_HASH_SCHEMA_VERSION = 1
 # Versions the recommendation-ID identity payload (tenant_id, symbol,
-# decision_type, context_hash). Deliberately NOT part of version_bundle():
-# it versions the ID scheme, not the decision context, so bumping it must not
-# perturb context hashes.
-RECOMMENDATION_ID_SCHEMA_VERSION = 1
+# decision_type, context_hash, decision_at). Deliberately NOT part of
+# version_bundle(): it versions the ID scheme, not the decision context, so
+# bumping it must not perturb context hashes.
+#
+# v2 (0.6.1) adds normalized decision_at. v1 omitted it while the stored-content
+# fingerprint included it, so two executions over an identical decision-input
+# context produced the same ID with different content and raised
+# LedgerConflictError. context_hash identifies the input context, not one
+# execution run — the execution timestamp is what separates two runs. v1 rows
+# remain readable; their IDs simply differ from v2 IDs for the same context.
+RECOMMENDATION_ID_SCHEMA_VERSION = 2
 
 # Engine / model versions (semver strings).
 CONSENSUS_ENGINE_VERSION = "1.0.0"

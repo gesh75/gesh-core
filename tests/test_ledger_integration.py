@@ -413,26 +413,62 @@ def test_prompt_bundle_hash_participates_in_context(db_path: Path):
 
 
 def test_recommendation_id_deterministic_shaped_and_scoped():
+    """Identity v2: tenant, symbol, decision_type, context_hash AND decision_at."""
+    at1 = "2026-07-20T09:30:00Z"
+    at2 = "2026-07-20T15:30:00Z"
+
     id1 = recommendation_id_for(
-        tenant_id=TENANT, symbol="NVDA", decision_type="consensus", context_hash=CTX_A
+        tenant_id=TENANT,
+        symbol="NVDA",
+        decision_type="consensus",
+        context_hash=CTX_A,
+        decision_at=at1,
     )
     id2 = recommendation_id_for(
-        tenant_id=TENANT, symbol="NVDA", decision_type="consensus", context_hash=CTX_A
+        tenant_id=TENANT,
+        symbol="NVDA",
+        decision_type="consensus",
+        context_hash=CTX_A,
+        decision_at=at1,
     )
     assert id1 == id2
     assert re.fullmatch(r"rec_[0-9a-f]{64}", id1)
 
     assert id1 != recommendation_id_for(
-        tenant_id="customer-1", symbol="NVDA", decision_type="consensus", context_hash=CTX_A
+        tenant_id="customer-1",
+        symbol="NVDA",
+        decision_type="consensus",
+        context_hash=CTX_A,
+        decision_at=at1,
     )
     assert id1 != recommendation_id_for(
-        tenant_id=TENANT, symbol="AAPL", decision_type="consensus", context_hash=CTX_A
+        tenant_id=TENANT,
+        symbol="AAPL",
+        decision_type="consensus",
+        context_hash=CTX_A,
+        decision_at=at1,
     )
     assert id1 != recommendation_id_for(
-        tenant_id=TENANT, symbol="NVDA", decision_type="advisory", context_hash=CTX_A
+        tenant_id=TENANT,
+        symbol="NVDA",
+        decision_type="advisory",
+        context_hash=CTX_A,
+        decision_at=at1,
     )
     assert id1 != recommendation_id_for(
-        tenant_id=TENANT, symbol="NVDA", decision_type="consensus", context_hash=CTX_B
+        tenant_id=TENANT,
+        symbol="NVDA",
+        decision_type="consensus",
+        context_hash=CTX_B,
+        decision_at=at1,
+    )
+    # v2: a later execution over an identical context is a distinct identity.
+    assert id1 != recommendation_id_for(
+        tenant_id=TENANT,
+        symbol="NVDA",
+        decision_type="consensus",
+        context_hash=CTX_A,
+        decision_at=at2,
     )
 
 

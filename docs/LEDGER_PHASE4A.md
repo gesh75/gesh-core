@@ -102,6 +102,33 @@ SQLite `REAL` for monetary columns (same convention as legacy paper tables). Can
 - Snapshots are content-addressed and conflict-safe.
 - Recommendations are append-only.
 
+### 0.6.1 — breaking API change (`recommendation_id_for`)
+
+`recommendation_id_for()` **requires** the keyword-only argument `decision_at`
+(`datetime | str`) as of 0.6.1. It is not optional and **no v1 fallback is
+provided**: there is no compatibility shim, no default value, and no way to
+request the v1 (four-field) identity through the public API. Callers that omit it
+fail loudly with `TypeError` at the call site rather than silently computing a
+v1-shaped ID.
+
+This is deliberate. A default or fallback would let two identity schemes coexist
+in one writer and silently reintroduce the v0.6.0 collision
+(`LedgerConflictError` on a second execution over an identical context).
+
+- **Database compatibility is unaffected.** No DDL change, no migration, no
+  backfill. Existing v1 rows remain readable and queryable, and coexist with v2
+  rows; the same decision context simply hashes to a different ID under each
+  scheme, so a v2 recording over a context already recorded under v1 **inserts a
+  new row** rather than reusing or conflicting with the v1 row.
+- **In-repo callers** (`record_analysis_decision`, and through it the
+  daily-analysis adapter) are already updated; they pass the normalized
+  `decision_at` used for the stored content, so identity and content can never
+  disagree again.
+- **Out-of-tree callers** of `recommendation_id_for()` must pass `decision_at`.
+  Pass the same value that will be persisted as the recommendation's
+  `decision_at`; it is normalized to UTC internally, so `Z`, explicit offsets,
+  naive-as-UTC, and `datetime` objects for one instant all yield one identity.
+
 ---
 
 # Phase 4B addendum — recording orchestration
@@ -134,14 +161,36 @@ non-fatal ledger recording must catch at the call site.
 
 `recommendation_id = "rec_" + sha256(canonical_json(identity_payload))` where the
 identity payload is `{schema_version, tenant_id, symbol, decision_type,
-context_hash}` (full `ctx_*` value, nothing truncated; payload versioned by
-`RECOMMENDATION_ID_SCHEMA_VERSION`, which is deliberately not part of
-`version_bundle()`). Identity = (tenant, symbol, decision type, decision
-context). `analysis_run_id` is optional provenance **metadata only** — never
-part of the identity, and excluded from the idempotency fingerprint, so a
-run-id-only difference on retry is idempotent. Its relationship to the legacy
-`analysis_runs` table is **logical and unenforced** (no FK): it is meaningful
-only when both sides resolve to the same `gesh_financial.db`.
+context_hash, decision_at}` (full `ctx_*` value, nothing truncated; `decision_at`
+normalized to UTC; payload versioned by `RECOMMENDATION_ID_SCHEMA_VERSION`, which
+is deliberately not part of `version_bundle()`). Identity = (tenant, symbol,
+decision type, decision context, decision time). `analysis_run_id` is optional
+provenance **metadata only** — never part of the identity, and excluded from the
+idempotency fingerprint, so a run-id-only difference on retry is idempotent. Its
+relationship to the legacy `analysis_runs` table is **logical and unenforced**
+(no FK): it is meaningful only when both sides resolve to the same
+`gesh_financial.db`.
+
+### Why `decision_at` is part of identity (v2, since 0.6.1)
+
+`context_hash` identifies the decision **input context**, not one execution run —
+by design, an LLM re-run over an unchanged book yields the same context. Identity
+v1 omitted `decision_at` while the stored-content fingerprint
+(`_FINGERPRINT_COLUMNS`) included it, so two executions over an identical context
+computed the **same** `recommendation_id` with **different** stored content and
+raised a spurious `LedgerConflictError`. Including normalized `decision_at` makes
+the execution timestamp — not the context — what separates two runs:
+
+| Case | Identity | Result |
+|---|---|---|
+| Exact retry (same context, same `decision_at`, same content) | same | idempotent reuse |
+| New execution (same context, later `decision_at`) | different | both rows coexist |
+| Probabilistic re-run (later `decision_at`, different output) | different | no conflict |
+| Same `decision_at`, **changed** content | same | `LedgerConflictError` (still enforced) |
+| `analysis_run_id`-only difference | same | reuse (provenance, not identity) |
+
+v1 rows remain readable and coexist with v2 rows; the same context simply yields
+a different ID under each scheme. No DDL change, no migration, no backfill.
 
 ## Partial writes and recovery
 
