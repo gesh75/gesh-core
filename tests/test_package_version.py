@@ -15,6 +15,6 @@ def test_package_and_runtime_version_match():
     declared = data["project"]["version"]
     runtime = gesh_core.__version__
 
-    assert declared == "0.6.0"
-    assert runtime == "0.6.0"
+    assert declared == "0.6.1"
+    assert runtime == "0.6.1"
     assert declared == runtime
