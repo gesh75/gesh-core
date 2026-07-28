@@ -4,13 +4,12 @@ applyTo: "**/*.py"
 
 # Python
 
-- Target the repo's declared `requires-python`. Do not use syntax newer than that.
+- Target `requires-python = ">=3.12"`. Do not use syntax newer than 3.12.
 - Full type annotations, including return types. Use `from __future__ import annotations`
   where it keeps signatures readable.
 - Prefer `pathlib.Path` over `os.path`, f-strings over `%`/`.format()`,
-  `dataclasses`/`pydantic` over ad-hoc dicts for structured data.
-- Use `httpx.AsyncClient` (or the repo's existing async client) for HTTP. Never `requests`
-  inside async code.
+  `dataclasses` over ad-hoc dicts for structured data.
+- This package uses **`requests`** (a declared dependency, used in `src/`). Use it. Do not introduce `httpx` or another HTTP client without adding the dependency and raising it in the PR.
 - Exceptions: raise specific types, never bare `except:`. `except Exception` requires a
   logged reason and a comment explaining why it is safe to continue.
 - Immutability: return new lists/dicts/dataclasses rather than mutating inputs.
