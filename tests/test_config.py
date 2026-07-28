@@ -4,6 +4,7 @@ Pins the ULTRA-CONSERVATIVE defaults (paper-mode safety boundary — rules
 #32/#36/#40) and the superset field set + robust env parsing. A regression here
 could flip live trading on, so these defaults are asserted explicitly.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -14,11 +15,19 @@ from gesh_core.trading import config
 from gesh_core.trading.config import RiskConfig, load_risk_config
 
 
+@pytest.fixture(autouse=True)
+def clear_safety_env(monkeypatch):
+    """Remove safety variables for each test and restore inherited values afterward."""
+    for key in ("PAPER_MODE", "REQUIRE_APPROVAL", "MARKET_REGIME_GATE"):
+        monkeypatch.delenv(key, raising=False)
+
+
 def test_module_loads_from_gesh_core():
     assert "gesh_core" in (config.__file__ or "")
 
 
 # ─── safety defaults (must never silently change) ─────────────────────────────
+
 
 def test_paper_mode_defaults_safe():
     cfg = RiskConfig()
@@ -45,6 +54,7 @@ def test_frozen_dataclass():
 
 # ─── superset fields (product gains these) ────────────────────────────────────
 
+
 def test_superset_safety_gate_fields_present():
     cfg = RiskConfig()
     assert cfg.max_sector_pct == 0.40
@@ -56,6 +66,7 @@ def test_superset_safety_gate_fields_present():
 
 
 # ─── env overrides + robust parsing ───────────────────────────────────────────
+
 
 def test_env_override_applies(monkeypatch):
     monkeypatch.setenv("MAX_POSITION_PCT", "0.05")
@@ -79,10 +90,34 @@ def test_garbage_env_falls_back(monkeypatch):
     assert load_risk_config().max_daily_loss_pct == 0.01
 
 
-@pytest.mark.parametrize("val,expected", [
-    ("1", True), ("true", True), ("YES", True), ("on", True),
-    ("0", False), ("false", False), ("no", False), ("", False),
-])
-def test_paper_mode_env_parsing(monkeypatch, val, expected):
-    monkeypatch.setenv("PAPER_MODE", val)
-    assert load_risk_config().paper_mode is expected
+def test_paper_mode_env_parsing(monkeypatch):
+    """Compatibility test for the strict PAPER_MODE contract (updated per P0-B).
+
+    Missing retains default; only trimmed case-insensitive true/false accepted;
+    blank, all legacy aliases (1/0/yes/no/y/n/on/off), and malformed raise ConfigError.
+    Concise — extensive matrix lives in test_config_strict_safety.py.
+    """
+    # Missing retains documented default
+    monkeypatch.delenv("PAPER_MODE", raising=False)
+    assert load_risk_config().paper_mode is True
+
+    # Valid true/false (case-insensitive after trim) only
+    for val in ("true", "True", " TRUE ", " true\t", "\nfalse "):
+        monkeypatch.setenv("PAPER_MODE", val)
+        assert load_risk_config().paper_mode is (val.strip().lower() == "true")
+
+    # Legacy aliases now raise (P0-B contract)
+    for bad in ("1", "0", "yes", "no", "y", "n", "on", "off"):
+        monkeypatch.setenv("PAPER_MODE", bad)
+        with pytest.raises(config.ConfigError):
+            load_risk_config()
+
+    # Blank raises ConfigError (never silent False)
+    monkeypatch.setenv("PAPER_MODE", "")
+    with pytest.raises(config.ConfigError):
+        load_risk_config()
+
+    # Malformed raises ConfigError (never silent False)
+    monkeypatch.setenv("PAPER_MODE", "maybe")
+    with pytest.raises(config.ConfigError):
+        load_risk_config()
