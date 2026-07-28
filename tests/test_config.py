@@ -4,6 +4,7 @@ Pins the ULTRA-CONSERVATIVE defaults (paper-mode safety boundary — rules
 #32/#36/#40) and the superset field set + robust env parsing. A regression here
 could flip live trading on, so these defaults are asserted explicitly.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -19,6 +20,7 @@ def test_module_loads_from_gesh_core():
 
 
 # ─── safety defaults (must never silently change) ─────────────────────────────
+
 
 def test_paper_mode_defaults_safe():
     cfg = RiskConfig()
@@ -45,6 +47,7 @@ def test_frozen_dataclass():
 
 # ─── superset fields (product gains these) ────────────────────────────────────
 
+
 def test_superset_safety_gate_fields_present():
     cfg = RiskConfig()
     assert cfg.max_sector_pct == 0.40
@@ -56,6 +59,7 @@ def test_superset_safety_gate_fields_present():
 
 
 # ─── env overrides + robust parsing ───────────────────────────────────────────
+
 
 def test_env_override_applies(monkeypatch):
     monkeypatch.setenv("MAX_POSITION_PCT", "0.05")
@@ -79,10 +83,32 @@ def test_garbage_env_falls_back(monkeypatch):
     assert load_risk_config().max_daily_loss_pct == 0.01
 
 
-@pytest.mark.parametrize("val,expected", [
-    ("1", True), ("true", True), ("YES", True), ("on", True),
-    ("0", False), ("false", False), ("no", False), ("", False),
-])
-def test_paper_mode_env_parsing(monkeypatch, val, expected):
-    monkeypatch.setenv("PAPER_MODE", val)
-    assert load_risk_config().paper_mode is expected
+def test_paper_mode_env_parsing(monkeypatch):
+    """Compatibility test for the strict PAPER_MODE contract.
+
+    Missing retains default; true/false (case-insensitive after trim) accepted;
+    blank and malformed raise ConfigError; never silently coerces to False.
+    Concise — extensive matrix lives in test_config_strict_safety.py.
+    """
+    # Missing retains documented default
+    monkeypatch.delenv("PAPER_MODE", raising=False)
+    assert load_risk_config().paper_mode is True
+
+    # Valid true/false (case-insensitive after trim)
+    for val in ("true", "True", " TRUE ", "1", "yes", "on"):
+        monkeypatch.setenv("PAPER_MODE", val)
+        assert load_risk_config().paper_mode is True
+
+    for val in ("false", "False", " FALSE ", "0", "no", "off"):
+        monkeypatch.setenv("PAPER_MODE", val)
+        assert load_risk_config().paper_mode is False
+
+    # Blank raises ConfigError (never silent False)
+    monkeypatch.setenv("PAPER_MODE", "")
+    with pytest.raises(config.ConfigError):
+        load_risk_config()
+
+    # Malformed raises ConfigError (never silent False)
+    monkeypatch.setenv("PAPER_MODE", "maybe")
+    with pytest.raises(config.ConfigError):
+        load_risk_config()
