@@ -9,6 +9,14 @@ across:
 - **engine** — `~/Projects/gesh-project-trading` (port 9003)
 - **product** — `~/Projects/gesh-project` (port 9000)
 
+## 🎛 Project control
+
+- **[PROJECT_CONTROL.md](PROJECT_CONTROL.md)** — canonical control document:
+  verified `main` SHA, the strict safety-boolean contract, consuming repositories
+  and their pins, compatibility gates, blockers, and the single next action.
+  **Pin by 40-char commit SHA, never by tag** — `main` still declares
+  `__version__ "0.6.1"`, identical to the `v0.6.1` tag it is 2 commits past.
+
 ## 📊 Docs & diagrams
 
 - **[docs/architecture.html](docs/architecture.html)** — interactive architecture dashboard (module map, shim pattern, DB resolution).
