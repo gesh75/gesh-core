@@ -9,4 +9,4 @@ Keep this module import-light: no heavy/optional dependencies at package import
 time, so ``import gesh_core`` stays cheap for both consumers.
 """
 
-__version__ = "0.6.1"
+__version__ = "0.6.2"

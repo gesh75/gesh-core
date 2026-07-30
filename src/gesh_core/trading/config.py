@@ -180,11 +180,19 @@ class ConfigSetting:
 
 @dataclass(frozen=True)
 class EffectiveConfig:
+    # hash=False: the mapping is a MappingProxyType over a dict and is therefore
+    # unhashable, which made the whole frozen dataclass unhashable even though
+    # frozen=True advertises the opposite. It stays in __eq__ (mapping equality
+    # works fine); config_hash already encodes it for identity purposes.
     settings: MappingProxyType[str, ConfigSetting] = field(
-        default_factory=lambda: MappingProxyType({})
+        default_factory=lambda: MappingProxyType({}), hash=False
     )
     config_hash: str = ""
-    resolved_at: str = ""
+    # compare=False: resolved_at is a fresh timestamp on every call, so including
+    # it in __eq__ meant two reads of an UNCHANGED configuration never compared
+    # equal — a permanent false positive for any "did the config change?" check.
+    # It is excluded from config_hash for the same reason.
+    resolved_at: str = field(default="", compare=False)
     # Safety-relevant only for this patch
     paper_mode: bool = True
     require_approval: bool = True

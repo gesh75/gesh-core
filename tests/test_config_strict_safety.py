@@ -344,6 +344,31 @@ def test_exact_public_output_and_frozen_regression():
         expected_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         assert eff.config_hash == expected_hash
 
+    # Complementary configuration: in the block above require_approval and
+    # market_regime_gate are BOTH True, so a cross-wire between exactly those two
+    # top-level fields survives. Three booleans cannot be pairwise distinct in one
+    # configuration (pigeonhole), and MARKET_REGIME_GATE must be missing there for
+    # the <missing>/default/missing metadata assertions. A second configuration
+    # separates them and closes the gap.
+    with patch.dict(os.environ, {"PAPER_MODE": "true", "REQUIRE_APPROVAL": "false"}):
+        eff_b = effective_config()
+        assert eff_b.paper_mode is True
+        assert eff_b.require_approval is False
+        assert eff_b.market_regime_gate is True
+        assert eff_b.settings["PAPER_MODE"].parsed_value is True
+        assert eff_b.settings["REQUIRE_APPROVAL"].parsed_value is False
+        assert eff_b.settings["MARKET_REGIME_GATE"].parsed_value is True
+
+    # Identity semantics: two reads of an UNCHANGED configuration compare equal
+    # and hash equal; resolved_at is excluded from both.
+    with patch.dict(os.environ, {"PAPER_MODE": "false", "REQUIRE_APPROVAL": "true"}):
+        first = effective_config()
+        second = effective_config()
+        assert first == second, "unchanged configuration must compare equal"
+        assert hash(first) == hash(second), "EffectiveConfig must be hashable"
+        assert len({first, second}) == 1
+        assert first.config_hash == second.config_hash
+
     # FrozenInstanceError regression on EffectiveConfig (and its inner settings)
     with patch.dict(os.environ, {}):
         eff2 = effective_config()
