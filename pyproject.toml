@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gesh-core"
-version = "0.6.1"
+version = "0.6.2"
 description = "Shared core modules for the GESH Financial engine and product repos (de-duplication / drift control)."
 requires-python = ">=3.12"
 # Direct third-party imports across the extracted modules:
