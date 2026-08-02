@@ -7,9 +7,12 @@ chain from the paper books and blinding the daily-loss circuit breaker.
 """
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
-from gesh_core.db_path import FALLBACK_DB_PATH, resolve_db_path
+import pytest
+
+from gesh_core.db_path import resolve_db_path
 
 
 def test_env_override_wins(tmp_path, monkeypatch):
@@ -24,20 +27,16 @@ def test_cwd_default(tmp_path, monkeypatch):
     assert resolve_db_path() == tmp_path / "gesh_financial.db"
 
 
-def test_unwritable_primary_falls_back(tmp_path, monkeypatch):
-    ro_dir = tmp_path / "ro"
-    ro_dir.mkdir()
-    ro_dir.chmod(0o500)  # no write permission
-    try:
-        monkeypatch.setenv("GESH_DB_PATH", str(ro_dir / "gesh_financial.db"))
-        assert resolve_db_path() == FALLBACK_DB_PATH
-    finally:
-        ro_dir.chmod(0o700)
+def test_unusable_primary_fails_closed(tmp_path, monkeypatch):
+    target = tmp_path / "corrupt.db"
+    target.write_bytes(b"not a sqlite database")
+    monkeypatch.setenv("GESH_DB_PATH", str(target))
+
+    with pytest.raises(sqlite3.DatabaseError):
+        resolve_db_path()
 
 
 def test_probe_leaves_no_probe_table(tmp_path, monkeypatch):
-    import sqlite3
-
     target = tmp_path / "probe.db"
     monkeypatch.setenv("GESH_DB_PATH", str(target))
     resolve_db_path()

@@ -17,7 +17,7 @@ from typing import Any
 
 from gesh_core.db_path import resolve_db_path
 
-# Resolved by the SAME probe+fallback resolver as trading.state, so the analysis/
+# Resolved by the SAME fail-closed resolver as trading.state, so the analysis/
 # paper tables and the execution audit chain always share one file (the daily-loss
 # breaker reads across both). Override explicitly via GESH_DB_PATH.
 DB_PATH = resolve_db_path()
