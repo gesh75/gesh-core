@@ -9,8 +9,8 @@ the breaker reads an empty book. This module is the single resolver both import.
 Resolution: ``GESH_DB_PATH`` env → ``<cwd>/gesh_financial.db`` (each consumer
 repo keeps its OWN book, rule #44 — servers/autopilot/chain run from their repo
 root). The primary is probed with a real DDL round-trip because VirtioFS
-(macOS shared mount) can't do SQLite DDL/WAL from a sandbox; on failure every
-importer shares the same /tmp fallback file.
+(macOS shared mount) can't do SQLite DDL/WAL from a sandbox. Probe failures are
+fatal so sensitive state is never redirected to an insecure shared location.
 """
 
 from __future__ import annotations
@@ -22,11 +22,8 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-FALLBACK_DB_PATH = Path("/tmp/gesh_trading_state.db")
-
-
 def resolve_db_path() -> Path:
-    """Resolve the writable gesh_financial.db path (probe + shared fallback)."""
+    """Resolve and verify the writable gesh_financial.db path."""
     env_override = os.getenv("GESH_DB_PATH")
     primary = Path(env_override or (Path.cwd() / "gesh_financial.db"))
     existed = primary.exists()
@@ -49,9 +46,6 @@ def resolve_db_path() -> Path:
                 "or set GESH_DB_PATH.", primary,
             )
         return primary
-    except (sqlite3.Error, OSError) as e:
-        logger.warning(
-            "gesh_financial.db not writable at %s (%s) — falling back to %s",
-            primary, e, FALLBACK_DB_PATH,
-        )
-        return FALLBACK_DB_PATH
+    except (sqlite3.Error, OSError):
+        logger.exception("gesh_financial.db is not usable at %s", primary)
+        raise
