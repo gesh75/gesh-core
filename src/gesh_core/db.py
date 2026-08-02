@@ -10,6 +10,7 @@ Tables:
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -238,10 +239,21 @@ def log_equity_snapshot(holdings: list[dict]) -> None:
     [CLAUDE 2026-07-18] audit D-07: rows with a non-positive price are degenerate
     (218 such rows found, including frozen live NVDA rows) — refuse to persist
     them instead of poisoning the ECG/history tables."""
-    bad = [h.get("symbol") for h in holdings if float(h.get("current_price") or 0) <= 0]
+    valid_holdings = []
+    bad = []
+    for holding in holdings:
+        try:
+            price = float(holding.get("current_price") or 0)
+        except (TypeError, ValueError):
+            bad.append(holding.get("symbol"))
+            continue
+        if not math.isfinite(price) or price <= 0:
+            bad.append(holding.get("symbol"))
+            continue
+        valid_holdings.append({**holding, "current_price": price})
     if bad:
-        print(f"[db] WARNING: skipping equity snapshot rows with price<=0: {bad}")
-        holdings = [h for h in holdings if float(h.get("current_price") or 0) > 0]
+        print(f"[db] WARNING: skipping equity snapshot rows with invalid price: {bad}")
+    holdings = valid_holdings
     if not holdings:
         return
     now = datetime.now(UTC).isoformat()

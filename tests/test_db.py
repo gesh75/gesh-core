@@ -93,6 +93,33 @@ def test_equity_snapshot_and_history():
     assert any(r["symbol"] == "NVDA" for r in latest)
 
 
+def test_equity_snapshot_skips_invalid_prices_without_losing_valid_rows(capsys):
+    db.log_equity_snapshot(
+        [
+            {"symbol": "VALID", "equity": 100, "current_price": "12.5"},
+            {"symbol": "TEXT", "equity": 200, "current_price": "N/A"},
+            {"symbol": "OBJECT", "equity": 300, "current_price": object()},
+            {"symbol": "NAN", "equity": 400, "current_price": float("nan")},
+            {"symbol": "INFINITY", "equity": 500, "current_price": float("inf")},
+            {"symbol": "ZERO", "equity": 600, "current_price": 0},
+        ]
+    )
+
+    assert db.get_equity_history("VALID")[0]["current_price"] == 12.5
+    assert db.get_all_latest_snapshots() == [
+        {
+            "symbol": "VALID",
+            "equity": 100.0,
+            "percent_change": 0.0,
+            "current_price": 12.5,
+            "snapshot_at": db.get_equity_history("VALID")[0]["snapshot_at"],
+        }
+    ]
+    warning = capsys.readouterr().out
+    for symbol in ("TEXT", "OBJECT", "NAN", "INFINITY", "ZERO"):
+        assert symbol in warning
+
+
 def test_get_portfolio_equity_history_sums_and_orders():
     # two snapshots at different timestamps -> summed per timestamp, oldest->newest
     with db._conn() as con:
