@@ -18,8 +18,9 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 # DB resolution lives in gesh_core.db_path — shared with db.py so the audit chain
 # and the paper books (which drive the daily-loss breaker) can never land in two
@@ -248,22 +249,37 @@ def log_order(
 
 # ─── counters / history ───────────────────────────────────────────────────────
 
-def count_orders_today(mode: str | None = None, approved_only: bool = True) -> int:
-    """Orders submitted since 00:00 UTC today.
+def count_orders_today(
+    mode: str | None = None,
+    approved_only: bool = True,
+    now: datetime | None = None,
+) -> int:
+    """Count orders inside the current America/New_York calendar day.
 
     Args:
         mode: Pass mode='paper' to filter to paper orders only.
         approved_only: When True (default), only count orders that actually went
-            to the book (SIMULATED, SUBMITTED, FILLED) toward the daily cap.
-            REJECTED and ERROR rows don't consume the rate limit — otherwise a
-            morning of broker/network errors (or a midday rebalance full of
-            rejected intents) burns all 3 slots before any real signal fills.
+            to the book: actionable BUY/SELL rows with status SIMULATED,
+            SUBMITTED, or FILLED and a positive submitted/executed quantity.
+            False deliberately returns every audit row inside the same ET bounds.
+        now: Optional timezone-aware instant for deterministic callers/tests.
     """
-    today = datetime.now(UTC).strftime("%Y-%m-%d")
-    sql = "SELECT COUNT(*) AS n FROM orders WHERE placed_at >= ?"
-    params: list[Any] = [today + "T00:00:00+00:00"]
+    instant = now or datetime.now(UTC)
+    if instant.tzinfo is None:
+        raise ValueError("count_orders_today now must be timezone-aware")
+    et = ZoneInfo("America/New_York")
+    et_day = instant.astimezone(et).date()
+    start_utc = datetime.combine(et_day, time.min, tzinfo=et).astimezone(UTC)
+    end_utc = datetime.combine(et_day + timedelta(days=1), time.min, tzinfo=et).astimezone(UTC)
+
+    sql = "SELECT COUNT(*) AS n FROM orders WHERE placed_at >= ? AND placed_at < ?"
+    params: list[Any] = [start_utc.isoformat(), end_utc.isoformat()]
     if approved_only:
-        sql += " AND status NOT IN ('REJECTED', 'ERROR')"
+        sql += (
+            " AND status IN ('SIMULATED', 'SUBMITTED', 'FILLED')"
+            " AND action IN ('BUY', 'SELL')"
+            " AND (COALESCE(qty, 0) > 0 OR COALESCE(fill_qty, 0) > 0)"
+        )
     if mode:
         sql += " AND mode = ?"
         params.append(mode)

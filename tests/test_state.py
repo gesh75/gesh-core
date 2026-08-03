@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -24,6 +25,29 @@ def _tmp_db(tmp_path, monkeypatch):
 
 def _today_iso():
     return datetime.now(UTC).strftime("%Y-%m-%d") + "T12:00:00+00:00"
+
+
+def _insert_order(
+    *,
+    placed_at: str,
+    client_order_id: str,
+    status: str = "SIMULATED",
+    action: str = "BUY",
+    qty: float | None = 1.0,
+    fill_qty: float | None = None,
+    mode: str = "paper",
+) -> None:
+    state.init_trading_tables()
+    with state._conn() as con:
+        con.execute(
+            """
+            INSERT INTO orders
+              (placed_at, intent_id, mode, client_order_id, status, symbol,
+               action, qty, fill_qty)
+            VALUES (?, 1, ?, ?, ?, 'TEST', ?, ?, ?)
+            """,
+            (placed_at, mode, client_order_id, status, action, qty, fill_qty),
+        )
 
 
 def test_module_loads_from_gesh_core():
@@ -75,6 +99,84 @@ def test_count_orders_excludes_rejected_by_default():
     assert state.count_orders_today() == 1                      # rejected excluded
     assert state.count_orders_today(approved_only=False) == 2   # engine superset param
     assert state.count_orders_today(mode="paper") == 1
+
+
+def test_count_orders_today_uses_et_dst_midnight_bounds():
+    # 2026-03-08 is a 23-hour ET day: [05:00Z, next-day 04:00Z).
+    now = datetime(2026, 3, 8, 12, tzinfo=ZoneInfo("America/New_York"))
+    _insert_order(placed_at="2026-03-08T04:59:59+00:00", client_order_id="before")
+    _insert_order(placed_at="2026-03-08T05:00:00+00:00", client_order_id="lower")
+    _insert_order(placed_at="2026-03-09T03:59:59+00:00", client_order_id="inside")
+    _insert_order(placed_at="2026-03-09T04:00:00+00:00", client_order_id="upper")
+
+    assert state.count_orders_today(now=now) == 2
+
+
+def test_count_orders_today_counts_only_actionable_positive_orders():
+    now = datetime(2026, 8, 4, 12, tzinfo=ZoneInfo("America/New_York"))
+    placed_at = "2026-08-04T16:00:00+00:00"
+    rows = [
+        ("sim-buy", "SIMULATED", "BUY", 1.0, None),
+        ("submitted-sell", "SUBMITTED", "SELL", 2.0, None),
+        ("filled-buy", "FILLED", "BUY", None, 3.0),
+        ("hold", "SIMULATED", "HOLD", 1.0, 1.0),
+        ("skipped", "SKIPPED", "BUY", 1.0, 1.0),
+        ("rejected", "REJECTED", "BUY", 1.0, 1.0),
+        ("error", "ERROR", "SELL", 1.0, 1.0),
+        ("zero", "SIMULATED", "BUY", 0.0, 0.0),
+        ("null", "SUBMITTED", "SELL", None, None),
+        ("negative", "FILLED", "BUY", -1.0, -1.0),
+    ]
+    for client_order_id, status, action, qty, fill_qty in rows:
+        _insert_order(
+            placed_at=placed_at,
+            client_order_id=client_order_id,
+            status=status,
+            action=action,
+            qty=qty,
+            fill_qty=fill_qty,
+        )
+
+    assert state.count_orders_today(now=now) == 3
+
+
+def test_count_orders_today_preserves_mode_filter():
+    now = datetime(2026, 8, 4, 12, tzinfo=ZoneInfo("America/New_York"))
+    placed_at = "2026-08-04T16:00:00+00:00"
+    _insert_order(placed_at=placed_at, client_order_id="paper", mode="paper")
+    _insert_order(placed_at=placed_at, client_order_id="live", mode="live")
+
+    assert state.count_orders_today(now=now) == 2
+    assert state.count_orders_today(mode="paper", now=now) == 1
+    assert state.count_orders_today(mode="live", now=now) == 1
+
+
+def test_count_orders_today_unapproved_mode_retains_all_audit_rows_inside_et_day():
+    now = datetime(2026, 8, 4, 12, tzinfo=ZoneInfo("America/New_York"))
+    inside = "2026-08-04T16:00:00+00:00"
+    _insert_order(
+        placed_at=inside,
+        client_order_id="hold",
+        status="SIMULATED",
+        action="HOLD",
+        qty=0.0,
+    )
+    _insert_order(
+        placed_at=inside,
+        client_order_id="skipped",
+        status="SKIPPED",
+        qty=0.0,
+    )
+    _insert_order(placed_at=inside, client_order_id="rejected", status="REJECTED")
+    _insert_order(placed_at=inside, client_order_id="error", status="ERROR", mode="live")
+    _insert_order(
+        placed_at="2026-08-05T04:00:00+00:00",
+        client_order_id="next-day",
+        status="ERROR",
+    )
+
+    assert state.count_orders_today(approved_only=False, now=now) == 4
+    assert state.count_orders_today(mode="paper", approved_only=False, now=now) == 3
 
 
 # ─── job markers (rule #38) ───────────────────────────────────────────────────
