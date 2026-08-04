@@ -133,23 +133,23 @@ def manual(
     stop_loss: float | None = None,
     take_profit: float | None = None,
     rationale: str | None = "manual override",
-    source: str = "manual",
+    source: Literal["manual"] = "manual",
 ) -> TradeIntent:
-    """Build a TradeIntent via the generic adapter.
+    """Build a manual CLI/API override intent.
 
-    `source` defaults to "manual" for true CLI/API overrides, but callers that
-    are actually relaying an ENGINE signal (e.g. the market scanner's 11-node
-    STRONG BUYs) MUST pass their real source (e.g. source="market_scan") so the
-    autonomy gate and the public /track-record proof page attribute the trade to
-    the engine, not to a human. Hardcoding "manual" here mislabeled 13 of 18
-    tracked positions as hand-picks (2026-06-14 forensics) and made the proof
-    page publish a false provenance claim. Forward-only — past rows are NOT
-    relabeled (that would be fabricated provenance)."""
+    Engine signals must use their dedicated adapter instead.  In particular,
+    accepting an engine provenance label here would allow an untrusted manual
+    caller to bypass source-based autonomy checks and corrupt attribution.
+    ``source`` remains an explicit keyword for compatibility with callers that
+    pass ``source="manual"``.
+    """
+    if source != "manual":
+        raise ValueError("manual intents must use source='manual'")
     return TradeIntent(
         symbol=symbol.upper(),
         action=action,
         confidence=confidence,
-        source=source,
+        source="manual",
         target_position_pct=target_position_pct,
         stop_loss=stop_loss,
         take_profit=take_profit,
