@@ -9,6 +9,7 @@ Inputs per holding: price history (90d), analyst upside, current allocation
 """
 
 import logging
+import math
 import os
 
 import numpy as np
@@ -18,10 +19,24 @@ import yfinance as yf
 logger = logging.getLogger(__name__)
 
 HALF_KELLY_FACTOR = 0.5   # conservative multiplier
+_DEFAULT_MAX_POSITION_PCT = 0.25
+
+
+def _parse_position_cap(value: str | None, fallback: float) -> float:
+    """Return a finite position cap in the inclusive range [0, 1]."""
+    try:
+        cap = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return cap if math.isfinite(cap) and 0.0 <= cap <= 1.0 else fallback
+
+
 # Per-position hard cap. Env-overridable (KELLY_MAX_POSITION_PCT) but the default
 # stays 0.25 so the standalone kelly_size_holding path — consumed directly by
 # consensus.py / run_engines2.py and the /kelly dashboard — is unchanged.
-MAX_POSITION_PCT  = float(os.getenv("KELLY_MAX_POSITION_PCT", "0.25"))
+MAX_POSITION_PCT = _parse_position_cap(
+    os.getenv("KELLY_MAX_POSITION_PCT"), _DEFAULT_MAX_POSITION_PCT
+)
 MIN_HISTORY_DAYS  = 30    # minimum trading days needed
 
 # ─── H2: portfolio-level reconciliation knobs (read at CALL time) ──────────────
@@ -45,10 +60,7 @@ def _max_position_pct() -> float:
     honors env changes in long-lived processes (server/autopilot) like every
     other knob in this module.
     """
-    try:
-        return float(os.getenv("KELLY_MAX_POSITION_PCT", str(MAX_POSITION_PCT)))
-    except (TypeError, ValueError):
-        return MAX_POSITION_PCT
+    return _parse_position_cap(os.getenv("KELLY_MAX_POSITION_PCT"), MAX_POSITION_PCT)
 
 
 def _max_gross_exposure() -> float:
