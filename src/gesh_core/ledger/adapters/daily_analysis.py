@@ -66,6 +66,20 @@ _CONSENSUS_ALLOWLIST = (
     "as_of",
 )
 _AI_OUTPUT_ALLOWLIST = ("verdict", "fair_value", "scores")
+_SECRET_FIELD_NAMES = frozenset(
+    {
+        "password",
+        "password_hash",
+        "secret",
+        "token",
+        "api_key",
+        "apikey",
+        "access_token",
+        "refresh_token",
+        "authorization",
+        "private_key",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -107,8 +121,27 @@ def _finite_or_none(value: Any) -> float | None:
     return f if math.isfinite(f) else None
 
 
+def _strip_secret_fields(value: Any) -> Any:
+    """Copy a payload value while recursively removing known secret fields."""
+    if isinstance(value, Mapping):
+        return {
+            key: _strip_secret_fields(item)
+            for key, item in value.items()
+            if str(key).lower() not in _SECRET_FIELD_NAMES
+        }
+    if isinstance(value, list):
+        return [_strip_secret_fields(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_strip_secret_fields(item) for item in value)
+    return value
+
+
 def _allowlist(item: Mapping[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
-    return {k: item.get(k) for k in keys if item.get(k) is not None}
+    return {
+        key: _strip_secret_fields(item[key])
+        for key in keys
+        if key in item and item[key] is not None
+    }
 
 
 def record_daily_analysis_decision(
