@@ -253,17 +253,15 @@ def count_orders_today(mode: str | None = None, approved_only: bool = True) -> i
 
     Args:
         mode: Pass mode='paper' to filter to paper orders only.
-        approved_only: When True (default), only count orders that actually went
-            to the book (SIMULATED, SUBMITTED, FILLED) toward the daily cap.
-            REJECTED and ERROR rows don't consume the rate limit — otherwise a
-            morning of broker/network errors (or a midday rebalance full of
-            rejected intents) burns all 3 slots before any real signal fills.
+        approved_only: When True (default), exclude definitely unsubmitted
+            REJECTED orders. ERROR rows still consume the daily cap because a
+            broker or network failure can occur after an order was accepted.
     """
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     sql = "SELECT COUNT(*) AS n FROM orders WHERE placed_at >= ?"
     params: list[Any] = [today + "T00:00:00+00:00"]
     if approved_only:
-        sql += " AND status NOT IN ('REJECTED', 'ERROR')"
+        sql += " AND status != 'REJECTED'"
     if mode:
         sql += " AND mode = ?"
         params.append(mode)
