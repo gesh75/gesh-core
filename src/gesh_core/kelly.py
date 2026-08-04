@@ -360,9 +360,10 @@ def _correlation_haircuts(
     no correlated peer, get 1.0 (fail-open — the overlay never UP-sizes a name).
 
     Alignment: when every usable series is a date-indexed ``pd.Series`` (the
-    production path via ``_fetch_returns``), symbols are inner-joined on the
-    shared calendar dates — a mid-series gap (halt day, listing gap, partial
-    fetch) no longer shifts one symbol's Monday against another's Tuesday.
+    production path via ``_fetch_returns``), each symbol pair is inner-joined
+    on its shared calendar dates — a mid-series gap (halt day, listing gap,
+    partial fetch) no longer shifts one symbol's Monday against another's
+    Tuesday, and an unrelated sparse symbol cannot suppress valid peers.
     Plain ndarrays (test seams / pre-dated injections) keep the positional
     last-L-points fallback.
     """
@@ -377,19 +378,29 @@ def _correlation_haircuts(
     if len(usable) < 2:
         return haircuts
     if all(isinstance(series[s], pd.Series) for s in usable):
-        # Date-aligned: rows are the calendar dates every symbol shares.
-        frame = pd.concat({s: series[s] for s in usable}, axis=1, join="inner").dropna()
-        if len(frame) < 2:
-            return haircuts   # no overlapping history — fail open, never guess
-        matrix = frame.to_numpy(dtype=float).T
+        # Date-align each pair independently. A global inner join would let one
+        # disjoint/sparse name erase usable history for every other pair.
+        corr = np.full((len(usable), len(usable)), np.nan, dtype=float)
+        for i, left in enumerate(usable):
+            corr[i, i] = 1.0
+            for j in range(i + 1, len(usable)):
+                right = usable[j]
+                pair = pd.concat(
+                    [series[left], series[right]], axis=1, join="inner"
+                ).dropna()
+                if len(pair) < 2:
+                    continue  # this pair has no usable overlap; fail open
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    value = np.corrcoef(pair.to_numpy(dtype=float).T)[0, 1]
+                corr[i, j] = corr[j, i] = value
     else:
         # Positional fallback: shortest common length, last L points.
         min_len = min(len(series[s]) for s in usable)
         if min_len < 2:
             return haircuts
         matrix = np.vstack([np.asarray(series[s], dtype=float)[-min_len:] for s in usable])
-    with np.errstate(invalid="ignore", divide="ignore"):
-        corr = np.corrcoef(matrix)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            corr = np.corrcoef(matrix)
     corr = np.atleast_2d(corr)
     for i, s in enumerate(usable):
         # Cluster size = self + peers at/above threshold (ignore NaNs from flat series).
