@@ -121,9 +121,16 @@ def test_portfolio_insert_get_dedup_and_tenant_isolation(db_path: Path):
     )
     assert r1["id"] == r2["id"]
 
+    other_hash = portfolio_snapshot_hash(
+        tenant_id="customer-uuid-1",
+        holdings=holdings,
+        cash=1000.0,
+        buying_power=1000.0,
+        total_equity=1450.0,
+    )
     other = insert_or_get_portfolio_snapshot(
         tenant_id="customer-uuid-1",
-        snapshot_hash=h,
+        snapshot_hash=other_hash,
         holdings=holdings,
         cash=1000.0,
         buying_power=1000.0,
@@ -167,6 +174,28 @@ def test_duplicate_portfolio_snapshot_returns_existing(db_path: Path):
     assert second["id"] == first["id"]
 
 
+def test_portfolio_snapshot_rejects_hash_for_different_contents(db_path: Path):
+    benign = [{"symbol": "AAPL", "quantity": 1}]
+    snapshot_hash = portfolio_snapshot_hash(
+        tenant_id=OWNER_TENANT_ID,
+        holdings=benign,
+        cash=100.0,
+        buying_power=100.0,
+        total_equity=200.0,
+    )
+
+    with pytest.raises(ValueError, match="does not match portfolio"):
+        insert_or_get_portfolio_snapshot(
+            tenant_id=OWNER_TENANT_ID,
+            snapshot_hash=snapshot_hash,
+            holdings=[{"symbol": "TSLA", "quantity": 999}],
+            cash=0.0,
+            buying_power=0.0,
+            total_equity=999999.0,
+            db_path=db_path,
+        )
+
+
 def test_duplicate_market_quote_snapshot_returns_existing(db_path: Path):
     mq_hash = market_quote_snapshot_hash(
         tenant_id=OWNER_TENANT_ID,
@@ -203,6 +232,33 @@ def test_duplicate_market_quote_snapshot_returns_existing(db_path: Path):
         db_path=db_path,
     )
     assert second["id"] == first["id"]
+
+
+def test_market_quote_snapshot_rejects_hash_for_different_contents(db_path: Path):
+    snapshot_hash = market_quote_snapshot_hash(
+        tenant_id=OWNER_TENANT_ID,
+        symbol="NVDA",
+        provider="yahoo",
+        as_of="2026-07-21T14:00:00Z",
+        bid=120.0,
+        ask=120.1,
+        last=120.05,
+        quality_state="FRESH",
+    )
+
+    with pytest.raises(ValueError, match="does not match market quote"):
+        insert_or_get_market_quote_snapshot(
+            tenant_id=OWNER_TENANT_ID,
+            snapshot_hash=snapshot_hash,
+            symbol="NVDA",
+            provider="yahoo",
+            as_of="2026-07-21T14:00:00Z",
+            bid=120.0,
+            ask=120.1,
+            last=0.01,
+            quality_state="FRESH",
+            db_path=db_path,
+        )
 
 
 def test_market_quote_invalid_quality_rejected(db_path: Path):

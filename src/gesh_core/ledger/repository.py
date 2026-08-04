@@ -15,6 +15,7 @@ from typing import Any
 
 from gesh_core.db import connect
 from gesh_core.db_path import resolve_db_path
+from gesh_core.ledger.hashes import market_quote_snapshot_hash, portfolio_snapshot_hash
 from gesh_core.ledger.schema import init_ledger_tables
 from gesh_core.ledger.versions import (
     MARKET_QUOTE_SNAPSHOT_SCHEMA_VERSION,
@@ -87,6 +88,17 @@ def insert_or_get_portfolio_snapshot(
     tenant_id = _require_tenant(tenant_id)
     if not snapshot_hash:
         raise ValueError("snapshot_hash is required")
+    expected_hash = portfolio_snapshot_hash(
+        tenant_id=tenant_id,
+        holdings=holdings,
+        cash=cash,
+        buying_power=buying_power,
+        total_equity=total_equity,
+        base_currency=base_currency,
+        risk_state=risk_state,
+    )
+    if snapshot_hash != expected_hash:
+        raise ValueError("snapshot_hash does not match portfolio snapshot contents")
     init_ledger_tables(db_path)
     path = db_path if db_path is not None else resolve_db_path()
     captured = captured_at or _now()
@@ -184,6 +196,22 @@ def insert_or_get_market_quote_snapshot(
         raise ValueError("snapshot_hash is required")
     if quality_state not in _QUALITY_STATES:
         raise ValueError(f"invalid quality_state: {quality_state!r}")
+    expected_hash = market_quote_snapshot_hash(
+        tenant_id=tenant_id,
+        symbol=symbol,
+        asset_type=asset_type,
+        provider=provider,
+        as_of=as_of,
+        available_time=available_time,
+        retrieved_at=retrieved_at,
+        bid=bid,
+        ask=ask,
+        last=last,
+        volume=volume,
+        quality_state=quality_state,
+    )
+    if snapshot_hash != expected_hash:
+        raise ValueError("snapshot_hash does not match market quote snapshot contents")
     init_ledger_tables(db_path)
     path = db_path if db_path is not None else resolve_db_path()
     retrieved = retrieved_at or _now()
