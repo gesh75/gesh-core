@@ -7,6 +7,7 @@ These pin the full TradeIntent contract + adapters so neither consumer regresses
   - symbol cap: len > 12 (product's stricter rule, now shared)
   - from_consensus() verdict -> action/target mapping + scaling
 """
+
 from __future__ import annotations
 
 import pytest
@@ -21,26 +22,29 @@ def test_module_loads_from_gesh_core():
 
 # ─── manual() provenance (engine fix) ─────────────────────────────────────────
 
+
 def test_manual_defaults_to_manual_source():
     intent = manual("nvda", "BUY", target_position_pct=0.02)
     assert intent.source == "manual"
-    assert intent.symbol == "NVDA"          # upper-cased
+    assert intent.symbol == "NVDA"  # upper-cased
     assert intent.action == "BUY"
     assert intent.confidence == 1.0
 
 
 def test_manual_source_override_for_engine_signals():
     intent = manual("HOOD", "BUY", target_position_pct=0.02, source="market_scan")
-    assert intent.source == "market_scan"   # provenance preserved (2026-06-14 fix)
+    assert intent.source == "market_scan"  # provenance preserved (2026-06-14 fix)
 
 
 def test_manual_passes_through_levels():
-    intent = manual("AAPL", "SELL", target_position_pct=0.0,
-                    stop_loss=180.0, take_profit=150.0, confidence=0.8)
+    intent = manual(
+        "AAPL", "SELL", target_position_pct=0.0, stop_loss=180.0, take_profit=150.0, confidence=0.8
+    )
     assert (intent.stop_loss, intent.take_profit, intent.confidence) == (180.0, 150.0, 0.8)
 
 
 # ─── validate() ───────────────────────────────────────────────────────────────
+
 
 def test_validate_clean_intent_has_no_problems():
     assert manual("NVDA", "BUY", target_position_pct=0.02).validate() == []
@@ -63,8 +67,15 @@ def test_validate_target_pct_bounds():
 
 
 def test_validate_nonpositive_levels():
-    problems = TradeIntent(symbol="NVDA", action="BUY", confidence=1.0, source="m",
-                           target_position_pct=0.02, stop_loss=-1.0, take_profit=0.0).validate()
+    problems = TradeIntent(
+        symbol="NVDA",
+        action="BUY",
+        confidence=1.0,
+        source="m",
+        target_position_pct=0.02,
+        stop_loss=-1.0,
+        take_profit=0.0,
+    ).validate()
     assert any("stop_loss must be > 0" in p for p in problems)
     assert any("take_profit must be > 0" in p for p in problems)
 
@@ -85,22 +96,32 @@ def test_validate_non_ascii_symbol():
 
 # ─── from_consensus() ─────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("verdict,exp_action,exp_target", [
-    ("STRONG BUY", "BUY", 0.02),
-    ("BUY", "BUY", 0.01),          # 0.5 * cap
-    ("SELL", "SELL", 0.0),
-    ("STRONG SELL", "SELL", 0.0),
-    ("HOLD", "HOLD", None),
-    ("INSUFFICIENT DATA", "HOLD", None),
-])
+
+@pytest.mark.parametrize(
+    "verdict,exp_action,exp_target",
+    [
+        ("STRONG BUY", "BUY", 0.02),
+        ("BUY", "BUY", 0.01),  # 0.5 * cap
+        ("SELL", "SELL", 0.0),
+        ("STRONG SELL", "SELL", 0.0),
+        ("HOLD", "HOLD", None),
+        ("INSUFFICIENT DATA", "HOLD", None),
+    ],
+)
 def test_from_consensus_verdict_mapping(verdict, exp_action, exp_target):
-    row = {"symbol": "NVDA", "verdict": verdict, "raw_score": 0.6,
-           "confidence": 80, "active_nodes": 8, "total_nodes": 11}
+    row = {
+        "symbol": "NVDA",
+        "verdict": verdict,
+        "raw_score": 0.6,
+        "confidence": 80,
+        "active_nodes": 8,
+        "total_nodes": 11,
+    }
     intent = from_consensus(row, max_position_pct=0.02)
     assert intent.action == exp_action
     assert intent.target_position_pct == exp_target
     assert intent.source == "consensus"
-    assert intent.confidence == pytest.approx(0.80)   # 80/100
+    assert intent.confidence == pytest.approx(0.80)  # 80/100
 
 
 def test_to_dict_roundtrip_keys():
@@ -109,15 +130,77 @@ def test_to_dict_roundtrip_keys():
         assert key in d
 
 
+def test_provenance_roundtrips_without_invented_defaults():
+    intent = manual("NVDA", "BUY", target_position_pct=0.02)
+
+    assert {
+        key: intent.to_dict()[key]
+        for key in (
+            "purpose",
+            "canonical_key",
+            "run_id",
+            "strategy_version",
+            "quote_provider",
+            "quote_as_of",
+        )
+    } == {
+        "purpose": None,
+        "canonical_key": None,
+        "run_id": None,
+        "strategy_version": None,
+        "quote_provider": None,
+        "quote_as_of": None,
+    }
+
+
+@pytest.mark.parametrize("adapter", ["manual", "consensus"])
+def test_adapters_accept_explicit_provenance(adapter):
+    provenance = {
+        "purpose": "ENTRY",
+        "canonical_key": "run-42:NVDA:BUY",
+        "run_id": "run-42",
+        "strategy_version": "strategy-v3",
+        "quote_provider": "fixture-provider",
+        "quote_as_of": "2026-08-04T12:34:56+00:00",
+    }
+    if adapter == "manual":
+        intent = manual(
+            "NVDA",
+            "BUY",
+            target_position_pct=0.02,
+            **provenance,
+        )
+    else:
+        intent = from_consensus(
+            {
+                "symbol": "NVDA",
+                "verdict": "BUY",
+                "raw_score": 0.6,
+                "confidence": 80,
+                "active_nodes": 8,
+                "total_nodes": 11,
+            },
+            **provenance,
+        )
+
+    assert {key: getattr(intent, key) for key in provenance} == provenance
+
+
 # ─── confidence semantics (audit PR4 — resolved as division of labor) ────────
+
 
 def test_from_consensus_confidence_is_participation_not_conviction():
     """confidence stays 0..1 participation (data coverage). Conviction is
     gated separately by the P2 entry floor on raw_score
     (RiskConfig.min_entry_score) — blending raw_score in here double-gated
     entries and silently re-calibrated every consumer's min_confidence."""
-    base = {"symbol": "NVDA", "verdict": "BUY", "confidence": 80,
-            "active_nodes": 8, "total_nodes": 11}
+    base = {
+        "symbol": "NVDA",
+        "verdict": "BUY",
+        "confidence": 80,
+        "active_nodes": 8,
+        "total_nodes": 11,
+    }
     weak = from_consensus({**base, "raw_score": 0.26})
     strong = from_consensus({**base, "raw_score": 0.60})
     assert weak.confidence == pytest.approx(0.80)

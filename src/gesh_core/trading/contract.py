@@ -27,18 +27,25 @@ def _utc_now_iso() -> str:
 @dataclass
 class TradeIntent:
     """One trade idea, fully described, source-tagged, JSON-serializable."""
+
     symbol: str
     action: Action
-    confidence: float                                # 0..1
-    source: str                                      # "consensus" | "kelly" | "manual" | ...
-    target_position_pct: float | None = None         # desired % of equity (0..1)
-    stop_loss: float | None = None                   # absolute price
-    take_profit: float | None = None                 # absolute price
+    confidence: float  # 0..1
+    source: str  # "consensus" | "kelly" | "manual" | ...
+    target_position_pct: float | None = None  # desired % of equity (0..1)
+    stop_loss: float | None = None  # absolute price
+    take_profit: float | None = None  # absolute price
     time_in_force: Literal["day", "gtc", "ioc", "fok"] = "day"
     generated_at: str = field(default_factory=_utc_now_iso)
     schema_version: int = SCHEMA_VERSION
     intent_uuid: str = field(default_factory=lambda: str(uuid.uuid4()))
-    rationale: str | None = None                     # free-text "why"
+    rationale: str | None = None  # free-text "why"
+    purpose: str | None = None
+    canonical_key: str | None = None
+    run_id: str | None = None
+    strategy_version: str | None = None
+    quote_provider: str | None = None
+    quote_as_of: str | None = None
 
     # ---- validation -----------------------------------------------------
 
@@ -67,10 +74,17 @@ class TradeIntent:
 
 # ─── Adapters from existing engines ───────────────────────────────────────────
 
+
 def from_consensus(
     consensus_row: dict[str, Any],
     *,
     max_position_pct: float = 0.02,
+    purpose: str | None = None,
+    canonical_key: str | None = None,
+    run_id: str | None = None,
+    strategy_version: str | None = None,
+    quote_provider: str | None = None,
+    quote_as_of: str | None = None,
 ) -> TradeIntent:
     """
     Convert one row from consensus.run_consensus_holding() / run_consensus_portfolio()
@@ -121,6 +135,12 @@ def from_consensus(
         target_position_pct=target,
         time_in_force="day",
         rationale=rationale,
+        purpose=purpose,
+        canonical_key=canonical_key,
+        run_id=run_id,
+        strategy_version=strategy_version,
+        quote_provider=quote_provider,
+        quote_as_of=quote_as_of,
     )
 
 
@@ -134,6 +154,12 @@ def manual(
     take_profit: float | None = None,
     rationale: str | None = "manual override",
     source: str = "manual",
+    purpose: str | None = None,
+    canonical_key: str | None = None,
+    run_id: str | None = None,
+    strategy_version: str | None = None,
+    quote_provider: str | None = None,
+    quote_as_of: str | None = None,
 ) -> TradeIntent:
     """Build a TradeIntent via the generic adapter.
 
@@ -154,4 +180,10 @@ def manual(
         stop_loss=stop_loss,
         take_profit=take_profit,
         rationale=rationale,
+        purpose=purpose,
+        canonical_key=canonical_key,
+        run_id=run_id,
+        strategy_version=strategy_version,
+        quote_provider=quote_provider,
+        quote_as_of=quote_as_of,
     )

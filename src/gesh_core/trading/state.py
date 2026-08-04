@@ -106,6 +106,34 @@ CREATE TABLE IF NOT EXISTS paper_stops (
 CREATE INDEX IF NOT EXISTS idx_paper_stops_active ON paper_stops(active, symbol);
 """
 
+_INTENT_PROVENANCE_COLUMNS = (
+    ("purpose", "TEXT"),
+    ("canonical_key", "TEXT"),
+    ("run_id", "TEXT"),
+    ("strategy_version", "TEXT"),
+    ("quote_provider", "TEXT"),
+    ("quote_as_of", "TEXT"),
+)
+
+
+def _migrate_trade_intent_provenance(con: sqlite3.Connection) -> None:
+    """Add nullable provenance without relabeling any historical intent."""
+    existing = {row["name"] for row in con.execute("PRAGMA table_info(trade_intents)").fetchall()}
+    for column, column_type in _INTENT_PROVENANCE_COLUMNS:
+        if column not in existing:
+            con.execute(f"ALTER TABLE trade_intents ADD COLUMN {column} {column_type}")
+
+    # These indexes can only be created after every legacy table has migrated.
+    con.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_intents_canonical_key "
+        "ON trade_intents(canonical_key) WHERE canonical_key IS NOT NULL"
+    )
+    con.execute("CREATE INDEX IF NOT EXISTS idx_intents_run_id ON trade_intents(run_id)")
+    con.execute(
+        "CREATE INDEX IF NOT EXISTS idx_intents_qualification "
+        "ON trade_intents(purpose, source, action, created_at)"
+    )
+
 
 @contextmanager
 def _conn():
@@ -117,7 +145,12 @@ def _conn():
     con.execute("PRAGMA busy_timeout=30000")
     try:
         con.executescript(_DDL)
+        _migrate_trade_intent_provenance(con)
         yield con
+    except Exception:
+        con.rollback()
+        raise
+    else:
         con.commit()
     finally:
         con.close()
@@ -136,9 +169,7 @@ def get_marker(name: str) -> str | None:
     fail-safe is needed. Returns None when the marker has never been set.
     """
     with _conn() as con:
-        row = con.execute(
-            "SELECT value FROM job_markers WHERE name = ?", [name]
-        ).fetchone()
+        row = con.execute("SELECT value FROM job_markers WHERE name = ?", [name]).fetchone()
     return row["value"] if row else None
 
 
@@ -165,33 +196,73 @@ def _now() -> str:
 
 # ─── trade_intents ────────────────────────────────────────────────────────────
 
-def log_intent(intent: dict[str, Any]) -> int:
+
+def _insert_intent(con: sqlite3.Connection, intent: dict[str, Any]) -> int:
+    cur = con.execute(
+        """
+        INSERT INTO trade_intents
+          (created_at, symbol, action, confidence, target_pct,
+           stop_loss, take_profit, time_in_force, source, schema_version, raw_json,
+           purpose, canonical_key, run_id, strategy_version, quote_provider, quote_as_of)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            intent.get("generated_at", _now()),
+            intent["symbol"],
+            intent["action"],
+            float(intent.get("confidence", 0.0)),
+            intent.get("target_position_pct"),
+            intent.get("stop_loss"),
+            intent.get("take_profit"),
+            intent.get("time_in_force", "day"),
+            intent.get("source", "unknown"),
+            int(intent.get("schema_version", 1)),
+            json.dumps(intent, default=str),
+            intent.get("purpose"),
+            intent.get("canonical_key"),
+            intent.get("run_id"),
+            intent.get("strategy_version"),
+            intent.get("quote_provider"),
+            intent.get("quote_as_of"),
+        ),
+    )
+    return int(cur.lastrowid)
+
+
+def log_intent(
+    intent: dict[str, Any],
+    *,
+    connection: sqlite3.Connection | None = None,
+) -> int:
+    """Persist an intent, optionally inside a caller-owned transaction."""
+    if connection is not None:
+        return _insert_intent(connection, intent)
     with _conn() as con:
-        cur = con.execute(
-            """
-            INSERT INTO trade_intents
-              (created_at, symbol, action, confidence, target_pct,
-               stop_loss, take_profit, time_in_force, source, schema_version, raw_json)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                intent.get("generated_at", _now()),
-                intent["symbol"],
-                intent["action"],
-                float(intent.get("confidence", 0.0)),
-                intent.get("target_position_pct"),
-                intent.get("stop_loss"),
-                intent.get("take_profit"),
-                intent.get("time_in_force", "day"),
-                intent.get("source", "unknown"),
-                int(intent.get("schema_version", 1)),
-                json.dumps(intent, default=str),
-            ),
-        )
-        return cur.lastrowid
+        return _insert_intent(con, intent)
+
+
+def get_intent_by_canonical_key(
+    canonical_key: str,
+    *,
+    connection: sqlite3.Connection | None = None,
+) -> dict[str, Any] | None:
+    """Read one canonical intent without changing any persisted provenance."""
+    if connection is not None:
+        row = connection.execute(
+            "SELECT * FROM trade_intents WHERE canonical_key = ?",
+            (canonical_key,),
+        ).fetchone()
+        return dict(row) if row is not None else None
+    with _conn() as con:
+        row = con.execute(
+            "SELECT * FROM trade_intents WHERE canonical_key = ?",
+            (canonical_key,),
+        ).fetchone()
+        return dict(row) if row is not None else None
 
 
 # ─── risk_decisions ───────────────────────────────────────────────────────────
+
 
 def log_decision(
     intent_id: int,
@@ -199,21 +270,35 @@ def log_decision(
     reason: str | None,
     gates: dict[str, bool],
     config_snapshot: dict[str, Any],
+    *,
+    connection: sqlite3.Connection | None = None,
 ) -> int:
-    with _conn() as con:
+    def insert(con: sqlite3.Connection) -> int:
         cur = con.execute(
             """
             INSERT INTO risk_decisions
               (decided_at, intent_id, verdict, reason, gates_json, config_json)
             VALUES (?,?,?,?,?,?)
             """,
-            (_now(), intent_id, verdict, reason,
-             json.dumps(gates), json.dumps(config_snapshot, default=str)),
+            (
+                _now(),
+                intent_id,
+                verdict,
+                reason,
+                json.dumps(gates),
+                json.dumps(config_snapshot, default=str),
+            ),
         )
-        return cur.lastrowid
+        return int(cur.lastrowid)
+
+    if connection is not None:
+        return insert(connection)
+    with _conn() as con:
+        return insert(con)
 
 
 # ─── orders ───────────────────────────────────────────────────────────────────
+
 
 def log_order(
     intent_id: int,
@@ -240,14 +325,29 @@ def log_order(
                error, response_json)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
-            (_now(), intent_id, decision_id, mode, client_order_id, broker_order_id,
-             status, symbol, action, qty, target_price, fill_price, fill_qty,
-             error, json.dumps(response, default=str) if response else None),
+            (
+                _now(),
+                intent_id,
+                decision_id,
+                mode,
+                client_order_id,
+                broker_order_id,
+                status,
+                symbol,
+                action,
+                qty,
+                target_price,
+                fill_price,
+                fill_qty,
+                error,
+                json.dumps(response, default=str) if response else None,
+            ),
         )
         return cur.lastrowid
 
 
 # ─── counters / history ───────────────────────────────────────────────────────
+
 
 def count_orders_today(
     mode: str | None = None,
@@ -325,6 +425,7 @@ def paper_realized_pnl_usd_today() -> float:
 
 # ─── paper book (positions + stops) ───────────────────────────────────────────
 
+
 def paper_open_positions() -> dict[str, dict[str, float]]:
     """Net open paper positions reconstructed from SIMULATED paper fills.
 
@@ -394,8 +495,15 @@ def record_stop(
                take_profit_price, volatility_tier, active)
             VALUES (?,?,?,?,?,?,?,1)
             """,
-            (_now(), order_row_id, symbol, entry_price, stop_price,
-             take_profit_price, volatility_tier),
+            (
+                _now(),
+                order_row_id,
+                symbol,
+                entry_price,
+                stop_price,
+                take_profit_price,
+                volatility_tier,
+            ),
         )
         return cur.lastrowid
 
@@ -420,9 +528,7 @@ def deactivate_stops(symbol: str) -> None:
 
 def recent_orders(limit: int = 25) -> list[dict]:
     with _conn() as con:
-        rows = con.execute(
-            "SELECT * FROM orders ORDER BY id DESC LIMIT ?", (limit,)
-        ).fetchall()
+        rows = con.execute("SELECT * FROM orders ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     return [dict(r) for r in rows]
 
 

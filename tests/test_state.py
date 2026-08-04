@@ -5,6 +5,7 @@ audit chain, the order-rate counter, job markers (rule #38), and the
 safety-critical two-book paper_realized_pnl_usd_today (rules #36/#40) that drives
 the PAPER daily-loss circuit breaker.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -56,6 +57,7 @@ def test_module_loads_from_gesh_core():
 
 # ─── resolver ─────────────────────────────────────────────────────────────────
 
+
 def test_resolver_env_then_cwd(tmp_path, monkeypatch):
     target = tmp_path / "explicit.db"
     monkeypatch.setenv("GESH_DB_PATH", str(target))
@@ -67,15 +69,24 @@ def test_resolver_env_then_cwd(tmp_path, monkeypatch):
 
 # ─── audit chain ──────────────────────────────────────────────────────────────
 
+
 def test_intent_decision_order_chain():
     state.init_trading_tables()
-    iid = state.log_intent({"symbol": "NVDA", "action": "BUY", "confidence": 0.9,
-                            "target_position_pct": 0.02, "source": "consensus"})
+    iid = state.log_intent(
+        {
+            "symbol": "NVDA",
+            "action": "BUY",
+            "confidence": 0.9,
+            "target_position_pct": 0.02,
+            "source": "consensus",
+        }
+    )
     assert iid > 0
     did = state.log_decision(iid, "APPROVED", None, {"KILL_SWITCH": True}, {"paper_mode": True})
     assert did > 0
-    oid = state.log_order(iid, did, "paper", "coid-1", "SIMULATED", "NVDA", "BUY",
-                          qty=10, target_price=100.0)
+    oid = state.log_order(
+        iid, did, "paper", "coid-1", "SIMULATED", "NVDA", "BUY", qty=10, target_price=100.0
+    )
     assert oid > 0
     assert state.recent_orders()[0]["client_order_id"] == "coid-1"
     assert state.recent_intents()[0]["symbol"] == "NVDA"
@@ -89,15 +100,112 @@ def test_client_order_id_idempotency():
         state.log_order(iid, None, "paper", "dup", "SIMULATED", "X", "BUY", 1, 1.0)
 
 
+PROVENANCE_COLUMNS = {
+    "purpose",
+    "canonical_key",
+    "run_id",
+    "strategy_version",
+    "quote_provider",
+    "quote_as_of",
+}
+
+
+def test_legacy_trade_intents_table_gains_provenance_columns_idempotently():
+    with sqlite3.connect(state.DB_PATH) as con:
+        con.execute(
+            """
+            CREATE TABLE trade_intents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                action TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                target_pct REAL,
+                stop_loss REAL,
+                take_profit REAL,
+                time_in_force TEXT,
+                source TEXT NOT NULL,
+                schema_version INTEGER NOT NULL DEFAULT 1,
+                raw_json TEXT
+            )
+            """
+        )
+        con.execute(
+            """
+            INSERT INTO trade_intents
+              (created_at, symbol, action, confidence, source)
+            VALUES ('2026-08-01T00:00:00+00:00', 'LEGACY', 'HOLD', 0.5, 'legacy')
+            """
+        )
+
+    state.init_trading_tables()
+    state.init_trading_tables()
+
+    with sqlite3.connect(state.DB_PATH) as con:
+        columns = {row[1] for row in con.execute("PRAGMA table_info(trade_intents)").fetchall()}
+        legacy = con.execute(
+            "SELECT symbol, purpose, canonical_key, run_id FROM trade_intents"
+        ).fetchone()
+        indexes = {row[1] for row in con.execute("PRAGMA index_list(trade_intents)").fetchall()}
+    assert PROVENANCE_COLUMNS <= columns
+    assert legacy == ("LEGACY", None, None, None)
+    assert {
+        "idx_intents_canonical_key",
+        "idx_intents_run_id",
+        "idx_intents_qualification",
+    } <= indexes
+
+
+def test_log_and_read_intent_by_canonical_key_persists_all_provenance():
+    provenance = {
+        "purpose": "ENTRY",
+        "canonical_key": "run-42:NVDA:BUY",
+        "run_id": "run-42",
+        "strategy_version": "strategy-v3",
+        "quote_provider": "fixture-provider",
+        "quote_as_of": "2026-08-04T12:34:56+00:00",
+    }
+    intent = {
+        "symbol": "NVDA",
+        "action": "BUY",
+        "confidence": 0.9,
+        "target_position_pct": 0.02,
+        "source": "consensus",
+        **provenance,
+    }
+
+    intent_id = state.log_intent(intent)
+    stored = state.get_intent_by_canonical_key(provenance["canonical_key"])
+
+    assert stored is not None
+    assert stored["id"] == intent_id
+    assert {key: stored[key] for key in provenance} == provenance
+
+
+def test_null_canonical_keys_coexist_but_duplicate_non_null_key_fails():
+    legacy = {"symbol": "X", "action": "HOLD", "confidence": 0.5, "source": "legacy"}
+    assert state.log_intent(legacy) > 0
+    assert state.log_intent(legacy) > 0
+
+    canonical = {
+        **legacy,
+        "canonical_key": "run-42:X:HOLD",
+    }
+    assert state.log_intent(canonical) > 0
+    with pytest.raises(sqlite3.IntegrityError):
+        state.log_intent(canonical)
+
+
 # ─── count_orders_today (approved_only superset) ──────────────────────────────
+
 
 def test_count_orders_excludes_rejected_by_default():
     state.init_trading_tables()
     iid = state.log_intent({"symbol": "X", "action": "BUY", "confidence": 1.0, "source": "m"})
     state.log_order(iid, None, "paper", "ok1", "SIMULATED", "X", "BUY", 1, 1.0)
     state.log_order(iid, None, "paper", "rej1", "REJECTED", "X", "BUY", 1, 1.0)
-    assert state.count_orders_today() == 1                      # rejected excluded
-    assert state.count_orders_today(approved_only=False) == 2   # engine superset param
+    assert state.count_orders_today() == 1  # rejected excluded
+    assert state.count_orders_today(approved_only=False) == 2  # engine superset param
     assert state.count_orders_today(mode="paper") == 1
 
 
@@ -181,16 +289,18 @@ def test_count_orders_today_unapproved_mode_retains_all_audit_rows_inside_et_day
 
 # ─── job markers (rule #38) ───────────────────────────────────────────────────
 
+
 def test_job_markers_roundtrip():
     state.init_trading_tables()
     assert state.get_marker("entry_cycle_date") is None
     state.set_marker("entry_cycle_date", "2026-06-20")
     assert state.get_marker("entry_cycle_date") == "2026-06-20"
-    state.set_marker("entry_cycle_date", "2026-06-21")          # upsert
+    state.set_marker("entry_cycle_date", "2026-06-21")  # upsert
     assert state.get_marker("entry_cycle_date") == "2026-06-21"
 
 
 # ─── safety-critical: two-book paper realized P&L (rules #36/#40) ──────────────
+
 
 def test_paper_realized_pnl_sums_both_books():
     state.init_trading_tables()
@@ -215,7 +325,7 @@ def test_paper_realized_pnl_engine_like_when_no_paper_trades():
 
 
 def test_paper_realized_pnl_failsafe_no_tables():
-    state.init_trading_tables()   # neither paper book exists
+    state.init_trading_tables()  # neither paper book exists
     assert state.paper_realized_pnl_usd_today() == 0.0
 
 
@@ -223,7 +333,9 @@ def test_paper_realized_pnl_ignores_other_days():
     state.init_trading_tables()
     with state._conn() as con:
         con.execute("CREATE TABLE paper_outcomes (pnl_usd REAL, exit_at TEXT)")
-        con.execute("INSERT INTO paper_outcomes VALUES (?, ?)", (-999.0, "2020-01-01T00:00:00+00:00"))
+        con.execute(
+            "INSERT INTO paper_outcomes VALUES (?, ?)", (-999.0, "2020-01-01T00:00:00+00:00")
+        )
     assert state.paper_realized_pnl_usd_today() == 0.0
 
 
@@ -235,5 +347,5 @@ def test_count_orders_excludes_error_by_default():
     state.log_order(iid, None, "paper", "ok-e1", "SIMULATED", "X", "BUY", 1, 1.0)
     state.log_order(iid, None, "paper", "err-e1", "ERROR", "X", "BUY", 1, 1.0, error="timeout")
     state.log_order(iid, None, "paper", "rej-e1", "REJECTED", "X", "BUY", 1, 1.0)
-    assert state.count_orders_today() == 1                      # ERROR + REJECTED excluded
-    assert state.count_orders_today(approved_only=False) == 3   # superset still sees all
+    assert state.count_orders_today() == 1  # ERROR + REJECTED excluded
+    assert state.count_orders_today(approved_only=False) == 3  # superset still sees all
