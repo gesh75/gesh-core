@@ -226,7 +226,9 @@ def _insert_intent(con: sqlite3.Connection, intent: dict[str, Any]) -> int:
             intent.get("quote_as_of"),
         ),
     )
-    return int(cur.lastrowid)
+    if cur.lastrowid is None:
+        raise sqlite3.DatabaseError("trade intent insert returned no row ID")
+    return cur.lastrowid
 
 
 def log_intent(
@@ -248,11 +250,15 @@ def get_intent_by_canonical_key(
 ) -> dict[str, Any] | None:
     """Read one canonical intent without changing any persisted provenance."""
     if connection is not None:
-        row = connection.execute(
+        cursor = connection.execute(
             "SELECT * FROM trade_intents WHERE canonical_key = ?",
             (canonical_key,),
-        ).fetchone()
-        return dict(row) if row is not None else None
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        columns = (description[0] for description in cursor.description or ())
+        return dict(zip(columns, row, strict=True))
     with _conn() as con:
         row = con.execute(
             "SELECT * FROM trade_intents WHERE canonical_key = ?",
@@ -289,7 +295,9 @@ def log_decision(
                 json.dumps(config_snapshot, default=str),
             ),
         )
-        return int(cur.lastrowid)
+        if cur.lastrowid is None:
+            raise sqlite3.DatabaseError("risk decision insert returned no row ID")
+        return cur.lastrowid
 
     if connection is not None:
         return insert(connection)

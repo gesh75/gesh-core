@@ -182,6 +182,29 @@ def test_log_and_read_intent_by_canonical_key_persists_all_provenance():
     assert {key: stored[key] for key in provenance} == provenance
 
 
+def test_read_intent_by_canonical_key_supports_standard_caller_connection():
+    canonical_key = "run-42:X:HOLD"
+    state.log_intent(
+        {
+            "symbol": "X",
+            "action": "HOLD",
+            "confidence": 0.5,
+            "source": "test",
+            "canonical_key": canonical_key,
+        }
+    )
+
+    with sqlite3.connect(state.DB_PATH) as con:
+        stored = state.get_intent_by_canonical_key(
+            canonical_key,
+            connection=con,
+        )
+
+    assert stored is not None
+    assert stored["canonical_key"] == canonical_key
+    assert stored["symbol"] == "X"
+
+
 def test_null_canonical_keys_coexist_but_duplicate_non_null_key_fails():
     legacy = {"symbol": "X", "action": "HOLD", "confidence": 0.5, "source": "legacy"}
     assert state.log_intent(legacy) > 0
