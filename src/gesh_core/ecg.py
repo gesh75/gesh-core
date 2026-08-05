@@ -12,6 +12,7 @@ Also calculates a portfolio-level gate status.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 # ─── Thresholds ───────────────────────────────────────────────────────────────
@@ -85,6 +86,28 @@ def compute_ecg(holdings: list[dict], history_fn) -> dict[str, Any]:
         symbol = h["symbol"]
         history = history_fn(symbol)   # newest-first list
 
+        # Treat malformed persisted/upstream data as a failed safety check.  In
+        # particular, NaN must never reach _classify(): every comparison with
+        # NaN is false, which would otherwise make the gate fail open.
+        try:
+            eq_list = [float(r["equity"]) for r in reversed(history)]
+            valid_equities = all(math.isfinite(equity) for equity in eq_list)
+        except (KeyError, TypeError, ValueError, OverflowError):
+            eq_list = []
+            valid_equities = False
+
+        if not valid_equities:
+            states.append({
+                "symbol":              symbol,
+                "state":               "SUSPENDED",
+                "drawdown_pct":        0.0,
+                "loss_streak":         0,
+                "snapshots_available": len(history),
+                "equity_history":      [],
+                "message":             "🔴 Suspended — invalid non-finite or non-numeric equity history.",
+            })
+            continue
+
         if len(history) < MIN_SNAPSHOTS:
             # Not enough data yet — optimistically mark as HEALTHY
             states.append({
@@ -99,7 +122,6 @@ def compute_ecg(holdings: list[dict], history_fn) -> dict[str, Any]:
             continue
 
         # Oldest → newest for correct running-peak computation
-        eq_list  = [r["equity"] for r in reversed(history)]
         # Per-snapshot equity CHANGES, derived from the equity series itself.
         # NOT percent_change: that column stores the position's gain/loss vs
         # average cost (a level), so any underwater holding read as a full-
