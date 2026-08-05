@@ -32,6 +32,22 @@ def test_validate_action_auto_trade_off_blocks():
     assert "Auto-trade is OFF" in reason
 
 
+def test_validate_action_rejects_noncanonical_action(tmp_path, monkeypatch):
+    """Malformed actions must fail closed instead of skipping action-specific gates."""
+    cfg = dict(ac.DEFAULT_CONFIG)
+    cfg["auto_trade"] = True
+    path = tmp_path / "gesh_config.json"
+    path.write_text(json.dumps(cfg))
+    monkeypatch.setenv("GESH_CONFIG_PATH", str(path))
+
+    for action in ("buy", " BUY", "HOLD", ""):
+        ok, reason = ac.validate_action(
+            action, "NVDA", 100.0, open_positions=5, current_cash=550.0
+        )
+        assert ok is False
+        assert "Invalid action" in reason
+
+
 def test_validate_action_respects_cwd_config(tmp_path, monkeypatch):
     # Point config at a temp dir with auto_trade ON; gate logic should engage.
     cfg = dict(ac.DEFAULT_CONFIG)

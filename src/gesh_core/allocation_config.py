@@ -96,6 +96,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
 # universe). Intraday/forex modes intentionally have NO upper price cap.
 PRICE_CAPPED_MODES = {"stock"}
 
+# Canonical actions accepted by the execution gate. Rejecting rather than
+# normalizing malformed actions keeps every safety check fail-closed.
+TRADE_ACTIONS = frozenset({"BUY", "ADD", "TRIM", "SELL"})
+
 # ─── Load / Save ──────────────────────────────────────────────────────────────
 
 def _coerce_key(key: str, value: Any) -> tuple[Any, bool]:
@@ -227,8 +231,11 @@ def validate_action(
     """
     cfg = load_config()
 
+    if action not in TRADE_ACTIONS:
+        return False, "Invalid action — expected BUY, ADD, TRIM, or SELL"
+
     # 1. Auto-trade gate
-    if not cfg["auto_trade"] and action in ("BUY", "ADD", "TRIM", "SELL"):
+    if not cfg["auto_trade"]:
         return False, "Auto-trade is OFF — review and execute manually"
 
     # 2. Max $ per trade
