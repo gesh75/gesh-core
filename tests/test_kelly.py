@@ -290,6 +290,24 @@ def test_haircut_uncorrelated_dated_series_untouched():
     assert hc == {"A": 1.0, "B": 1.0}
 
 
+def test_disjoint_series_does_not_suppress_other_pair_haircut():
+    import pandas as pd
+    dates = pd.bdate_range("2026-01-05", periods=20)
+    local = np.random.default_rng(19)
+    a = pd.Series(local.normal(0.001, 0.02, 20), index=dates)
+    b = a.copy()
+    disjoint_dates = pd.bdate_range("2025-01-06", periods=20)
+    c = pd.Series(local.normal(0.001, 0.02, 20), index=disjoint_dates)
+
+    hc = kelly._correlation_haircuts(
+        ["A", "B", "C"], {"A": a, "B": b, "C": c}, threshold=0.7
+    )
+
+    assert hc["A"] == pytest.approx(1 / np.sqrt(2), abs=1e-6)
+    assert hc["B"] == pytest.approx(1 / np.sqrt(2), abs=1e-6)
+    assert hc["C"] == 1.0
+
+
 def test_haircut_positional_fallback_for_plain_arrays():
     # Injected plain ndarrays (no dates) keep the pre-PR-3 positional behavior —
     # the seam downstream tests rely on.
