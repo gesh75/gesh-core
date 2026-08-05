@@ -74,6 +74,24 @@ def test_profitable_position_skipped():
     assert th.scan_tax_loss_candidates(positions) == []
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("price", "nan"),
+        ("price", "inf"),
+        ("quantity", "nan"),
+        ("quantity", "inf"),
+        ("average_buy_price", "nan"),
+        ("average_buy_price", "inf"),
+    ],
+)
+def test_non_finite_position_values_are_skipped(field, value):
+    position = {"price": 50.0, "quantity": 20, "average_buy_price": 100.0}
+    position[field] = value
+
+    assert th.scan_tax_loss_candidates({"BAD": position}) == []
+
+
 def test_cost_basis_map_overrides_position():
     positions = {"EEE": {"price": 50.0, "quantity": 100}}  # $5000 loss vs basis 100
     cands = th.scan_tax_loss_candidates(positions, cost_basis_map={"EEE": 100.0})
