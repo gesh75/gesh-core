@@ -7,6 +7,8 @@ underwater-but-flat holding is NOT falsely SUSPENDED.
 """
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from gesh_core import ecg
@@ -73,6 +75,28 @@ def test_real_equity_crash_trips_suspended():
     st = out["states"][0]
     assert st["state"] == "SUSPENDED"       # -65% from peak
     assert "drawdown" in st["message"]
+
+
+@pytest.mark.parametrize("bad_equity", [float("nan"), float("inf"), float("-inf"), None, "bad"])
+def test_malformed_equity_history_fails_closed(bad_equity):
+    holdings = [{"symbol": "BAD-DATA", "equity": 70}]
+    out = ecg.compute_ecg(holdings, lambda s: _hist([100, bad_equity, 70]))
+    st = out["states"][0]
+
+    assert st["state"] == "SUSPENDED"
+    assert out["portfolio_gate"] == "SUSPENDED"
+    assert math.isfinite(st["drawdown_pct"])
+    assert st["equity_history"] == []
+    assert "invalid" in st["message"]
+
+
+def test_single_malformed_snapshot_fails_closed():
+    out = ecg.compute_ecg(
+        [{"symbol": "BAD-DATA", "equity": 0}],
+        lambda s: _hist([float("nan")]),
+    )
+
+    assert out["states"][0]["state"] == "SUSPENDED"
 
 
 def test_consecutive_equity_declines_build_streak():
