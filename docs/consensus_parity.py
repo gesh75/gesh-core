@@ -2,12 +2,12 @@ import json, subprocess, sys
 SYMS = sys.argv[1:] or ["NVDA","SPY","HOOD","GS","AAPL"]
 ENG="/Users/georgigaydarov/Projects/gesh-project-trading"
 PRD="/Users/georgigaydarov/Projects/gesh-project"
-ONE = ("import json,consensus;"
-       "r=consensus.run_consensus_holding('{s}',1000,100000,100,120);"
-       "print('PARITY',json.dumps({{'raw':r.get('raw_score'),'verdict':r.get('verdict'),'active':r.get('active_nodes')}}))")
+ONE = ("import json,sys,consensus;"
+       "r=consensus.run_consensus_holding(sys.argv[1],1000,100000,100,120);"
+       "print('PARITY',json.dumps({'raw':r.get('raw_score'),'verdict':r.get('verdict'),'active':r.get('active_nodes')}))")
 def run(repo, sym):
     try:
-        out=subprocess.run([f"{repo}/venv/bin/python","-c",ONE.format(s=sym)],cwd=repo,
+        out=subprocess.run([f"{repo}/venv/bin/python","-c",ONE,sym],cwd=repo,
                            capture_output=True,text=True,timeout=120).stdout
         for line in out.splitlines():
             if line.startswith("PARITY"): return json.loads(line[6:])
