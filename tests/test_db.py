@@ -103,3 +103,50 @@ def test_get_portfolio_equity_history_sums_and_orders():
     assert series[0]["snapshot_at"] == "2026-06-01T00:00:00"   # oldest first
     assert series[0]["total_equity"] == 150                    # 100 + 50
     assert series[-1]["total_equity"] == 200
+
+
+@pytest.mark.parametrize(
+    ("accessor", "argument"),
+    [
+        (db.get_analysis_history, "limit"),
+        (lambda **kw: db.get_equity_history("NVDA", **kw), "days"),
+        (db.get_portfolio_equity_history, "points"),
+    ],
+)
+def test_history_limits_reject_invalid_values(accessor, argument):
+    for value in (0, -1):
+        with pytest.raises(ValueError, match="must be positive"):
+            accessor(**{argument: value})
+    for value in (True, 1.5, "10", None):
+        with pytest.raises(TypeError, match="must be an integer"):
+            accessor(**{argument: value})
+
+
+@pytest.mark.parametrize(
+    ("accessor", "argument", "maximum"),
+    [
+        (db.get_analysis_history, "limit", db._MAX_ANALYSIS_HISTORY),
+        (
+            lambda **kw: db.get_equity_history("NVDA", **kw),
+            "days",
+            db._MAX_EQUITY_HISTORY,
+        ),
+        (
+            db.get_portfolio_equity_history,
+            "points",
+            db._MAX_PORTFOLIO_EQUITY_HISTORY,
+        ),
+    ],
+)
+def test_history_limits_are_clamped(monkeypatch, accessor, argument, maximum):
+    seen = []
+    original = db._bounded_limit
+
+    def capture(value, *, name, maximum):
+        result = original(value, name=name, maximum=maximum)
+        seen.append(result)
+        return result
+
+    monkeypatch.setattr(db, "_bounded_limit", capture)
+    accessor(**{argument: 10**9})
+    assert seen == [maximum]

@@ -22,6 +22,19 @@ from gesh_core.db_path import resolve_db_path
 # breaker reads across both). Override explicitly via GESH_DB_PATH.
 DB_PATH = resolve_db_path()
 
+_MAX_ANALYSIS_HISTORY = 100
+_MAX_EQUITY_HISTORY = 365
+_MAX_PORTFOLIO_EQUITY_HISTORY = 365
+
+
+def _bounded_limit(value: int, *, name: str, maximum: int) -> int:
+    """Validate and cap a caller-provided SQL row limit."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{name} must be an integer")
+    if value <= 0:
+        raise ValueError(f"{name} must be positive")
+    return min(value, maximum)
+
 
 # ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -178,6 +191,7 @@ def log_analysis(
 
 def get_analysis_history(limit: int = 20) -> list[dict]:
     """Return the last N analysis runs (newest first), without bulky JSONs."""
+    limit = _bounded_limit(limit, name="limit", maximum=_MAX_ANALYSIS_HISTORY)
     with _conn() as con:
         rows = con.execute(
             """
@@ -266,6 +280,7 @@ def log_equity_snapshot(holdings: list[dict]) -> None:
 
 def get_equity_history(symbol: str, days: int = 30) -> list[dict]:
     """Return the last N days of snapshots for one symbol."""
+    days = _bounded_limit(days, name="days", maximum=_MAX_EQUITY_HISTORY)
     with _conn() as con:
         rows = con.execute(
             """
@@ -286,6 +301,9 @@ def get_portfolio_equity_history(points: int = 60) -> list[dict]:
     Returns up to `points` most recent snapshots in chronological order — the
     series that feeds the dashboard KPI sparklines.
     """
+    points = _bounded_limit(
+        points, name="points", maximum=_MAX_PORTFOLIO_EQUITY_HISTORY
+    )
     with _conn() as con:
         rows = con.execute(
             """
