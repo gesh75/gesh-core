@@ -11,8 +11,9 @@ the engine's existing import sites (``from consensus import _yf_download_with_re
 so the engine can adopt this module later with no call-site churn.
 
 Network-bound but fully guarded — every failure path returns ``None`` (never raises).
-The Robinhood fallback does a lazy ``import price_source`` resolved against the running
-repo's own price_source module (host-provided, like kelly/levels).
+Hosts may explicitly inject a trusted Robinhood fallback into
+``yf_download_with_retry``; this package never discovers executable host modules via
+the process-wide import path.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from __future__ import annotations
 import logging
 import random
 import time
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -31,11 +33,18 @@ _YF_MAX_RETRIES = 3
 _YF_BASE_DELAY = 2.0   # seconds base — actual = base * 2^attempt + jitter
 
 
-def yf_download_with_retry(symbol: str, **kwargs: Any):
+def yf_download_with_retry(
+    symbol: str,
+    *,
+    fallback: Callable[..., Any] | None = None,
+    **kwargs: Any,
+):
     """yf.download() with exponential backoff on 401/crumb errors + Robinhood fallback.
 
     Accepts the same kwargs as yf.download(). Returns the DataFrame on success, or
-    ``None`` after all retries (and the RH fallback) are exhausted. Never raises.
+    ``None`` after all retries (and an explicitly supplied fallback) are exhausted.
+    ``fallback`` must be a callable imported by the host from a trusted location; it
+    is kept separate from ``kwargs`` and is never forwarded to yfinance. Never raises.
     """
     for attempt in range(_YF_MAX_RETRIES):
         try:
@@ -60,14 +69,16 @@ def yf_download_with_retry(symbol: str, **kwargs: Any):
                 time.sleep(delay)
             else:
                 logger.warning("yf_download: all retries failed for %s — %s", symbol, e)
-    # Yahoo exhausted (401/crumb storm or persistently empty) — try Robinhood.
-    try:
-        import price_source  # noqa: PLC0415 — host-provided, resolved per repo
-        fb = price_source.rh_fallback(symbol, **kwargs)
-        if fb is not None and len(fb) >= 5:
-            return fb
-    except Exception as e:  # noqa: BLE001 — fallback must never break the run
-        logger.debug("yf_download: RH fallback failed for %s — %s", symbol, e)
+    # Yahoo exhausted (401/crumb storm or persistently empty). Only call a fallback
+    # explicitly supplied by the host: importing an unqualified host module here
+    # would allow an attacker-controlled sys.path entry to execute arbitrary code.
+    if fallback is not None:
+        try:
+            fb = fallback(symbol, **kwargs)
+            if fb is not None and len(fb) >= 5:
+                return fb
+        except Exception as e:  # noqa: BLE001 — fallback must never break the run
+            logger.debug("yf_download: RH fallback failed for %s — %s", symbol, e)
     return None
 
 

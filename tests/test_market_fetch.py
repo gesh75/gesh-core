@@ -1,13 +1,9 @@
 """Tests for gesh_core.market_fetch (consensus Phase 1).
 
-Fully network-free: yf.download is monkeypatched and the Robinhood fallback's
-price_source is stubbed into sys.modules. time.sleep is no-op'd so retry paths
-don't actually wait.
+Fully network-free: yf.download and the explicitly injected Robinhood fallback are
+stubbed. time.sleep is no-op'd so retry paths don't actually wait.
 """
 from __future__ import annotations
-
-import sys
-import types
 
 import numpy as np
 import pandas as pd
@@ -59,19 +55,29 @@ def test_download_retries_then_succeeds(monkeypatch):
 
 
 def test_download_robinhood_fallback(monkeypatch):
-    # Yahoo always fails -> lazy `import price_source` must provide the data.
+    # Yahoo always fails -> the explicitly trusted host callback provides the data.
     monkeypatch.setattr(mf.yf, "download", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("crumb")))
-    stub = types.ModuleType("price_source")
-    stub.rh_fallback = lambda symbol, **k: _df(30)
-    monkeypatch.setitem(sys.modules, "price_source", stub)
-    out = mf.yf_download_with_retry("NVDA", period="2y")
+    out = mf.yf_download_with_retry(
+        "NVDA", period="2y", fallback=lambda symbol, **k: _df(30)
+    )
     assert out is not None and len(out) == 30
 
 
 def test_download_all_fail_returns_none(monkeypatch):
     monkeypatch.setattr(mf.yf, "download", lambda *a, **k: pd.DataFrame())   # empty
-    monkeypatch.setitem(sys.modules, "price_source", types.ModuleType("price_source"))  # no rh_fallback
     assert mf.yf_download_with_retry("ZZZZ", period="2y") is None
+
+
+def test_download_does_not_import_untrusted_fallback(monkeypatch, tmp_path):
+    monkeypatch.setattr(mf.yf, "download", lambda *a, **k: pd.DataFrame())
+    marker = tmp_path / "imported"
+    (tmp_path / "price_source.py").write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).touch()\n"
+    )
+    monkeypatch.syspath_prepend(tmp_path)
+
+    assert mf.yf_download_with_retry("ZZZZ", period="2y") is None
+    assert not marker.exists()
 
 
 def test_fetch_ohlcv_returns_arrays(monkeypatch):
