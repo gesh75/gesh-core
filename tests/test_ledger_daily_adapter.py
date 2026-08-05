@@ -74,8 +74,16 @@ def _eng() -> dict[str, Any]:
                         "current": 120.0,
                         "status": "undervalued",
                         "pct_diff": 25.0,
+                        "api_key": "nested-key-must-not-be-stored",
+                        "provider": {
+                            "name": "example",
+                            "access_token": "nested-token-must-not-be-stored",
+                        },
                     },
-                    "scores": {"valuation": 70},
+                    "scores": {
+                        "valuation": 70,
+                        "details": [{"token": "list-token-must-not-be-stored"}],
+                    },
                     "analyst_note": "long prose",
                     "api_key": "must-not-be-stored",
                 },
@@ -164,6 +172,8 @@ def test_adapter_happy_path(db_path: Path):
     ai_output = json.loads(nvda["ai_output_json"])
     assert ai_output["verdict"] == "undervalued"
     assert ai_output["fair_value"]["estimate"] == 150.0
+    assert ai_output["fair_value"]["provider"] == {"name": "example"}
+    assert ai_output["scores"]["details"] == [{}]
     assert "analyst_note" not in ai_output and "api_key" not in ai_output
 
     msft = _rec_row(db_path, rec.recommendation_ids[2])
@@ -223,13 +233,20 @@ def test_adapter_secret_fields_never_stored_and_hashes_unaffected(db_path: Path)
     assert "token" not in stored_holdings
     assert "unrelated_field" not in stored_holdings
 
-    nvda = _rec_row(db_path, first.recording.recommendation_ids[0])
-    assert "api_key" not in (nvda["ai_output_json"] or "")
+    nvda = _rec_row(db_path, first.recording.recommendation_ids[1])
+    stored_ai_output = nvda["ai_output_json"] or ""
+    assert "api_key" not in stored_ai_output
+    assert "access_token" not in stored_ai_output
+    assert "token" not in stored_ai_output
 
     # Mutating an unrelated legacy field must not change identity or content.
     eng2 = _eng()
     eng2["holdings"][0]["unrelated_field"] = 999999
     eng2["holdings"][0]["another_new_junk_key"] = {"nested": "junk"}
+    eng2["ai_result"]["holdings_analysis"][0]["fair_value"]["api_key"] = "rotated-key"
+    eng2["ai_result"]["holdings_analysis"][0]["scores"]["details"][0]["token"] = (
+        "rotated-token"
+    )
     second = _record(db_path, eng=eng2)
     assert second.recording.recommendation_ids == first.recording.recommendation_ids
     assert second.recording.inserted_ids == ()
