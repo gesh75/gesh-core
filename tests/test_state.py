@@ -268,7 +268,7 @@ def test_count_orders_today_counts_only_actionable_positive_orders():
             fill_qty=fill_qty,
         )
 
-    assert state.count_orders_today(now=now) == 3
+    assert state.count_orders_today(now=now) == 4
 
 
 def test_count_orders_today_preserves_mode_filter():
@@ -362,13 +362,13 @@ def test_paper_realized_pnl_ignores_other_days():
     assert state.paper_realized_pnl_usd_today() == 0.0
 
 
-def test_count_orders_excludes_error_by_default():
-    # Broker/network ERROR rows must not consume the daily order cap — a morning
-    # of transient errors would otherwise exhaust max_orders_per_day with 0 fills.
+def test_count_orders_includes_error_by_default():
+    # Broker/network ERROR rows consume the cap because the failure may have
+    # occurred after the broker accepted the order.
     state.init_trading_tables()
     iid = state.log_intent({"symbol": "X", "action": "BUY", "confidence": 1.0, "source": "m"})
-    state.log_order(iid, None, "paper", "ok-e1", "SIMULATED", "X", "BUY", 1, 1.0)
-    state.log_order(iid, None, "paper", "err-e1", "ERROR", "X", "BUY", 1, 1.0, error="timeout")
-    state.log_order(iid, None, "paper", "rej-e1", "REJECTED", "X", "BUY", 1, 1.0)
-    assert state.count_orders_today() == 1  # ERROR + REJECTED excluded
+    state.log_order(iid, None, "live", "ok-e1", "SUBMITTED", "X", "BUY", 1, 1.0)
+    state.log_order(iid, None, "live", "err-e1", "ERROR", "X", "BUY", 1, 1.0, error="timeout")
+    state.log_order(iid, None, "live", "rej-e1", "REJECTED", "X", "BUY", 1, 1.0)
+    assert state.count_orders_today(mode="live") == 2  # SUBMITTED + ERROR; REJECTED excluded
     assert state.count_orders_today(approved_only=False) == 3  # superset still sees all

@@ -366,10 +366,12 @@ def count_orders_today(
 
     Args:
         mode: Pass mode='paper' to filter to paper orders only.
-        approved_only: When True (default), only count orders that actually went
-            to the book: actionable BUY/SELL rows with status SIMULATED,
-            SUBMITTED, or FILLED and a positive submitted/executed quantity.
-            False deliberately returns every audit row inside the same ET bounds.
+        approved_only: When True (default), count actionable BUY/SELL rows that
+            may have consumed capacity: status SIMULATED, SUBMITTED, FILLED, or
+            ERROR with a positive submitted/executed quantity. REJECTED is
+            excluded; ERROR still consumes the daily cap because a broker or
+            network failure can occur after an order was accepted. False
+            deliberately returns every audit row inside the same ET bounds.
         now: Optional timezone-aware instant for deterministic callers/tests.
     """
     instant = now or datetime.now(UTC)
@@ -384,7 +386,7 @@ def count_orders_today(
     params: list[Any] = [start_utc.isoformat(), end_utc.isoformat()]
     if approved_only:
         sql += (
-            " AND status IN ('SIMULATED', 'SUBMITTED', 'FILLED')"
+            " AND status IN ('SIMULATED', 'SUBMITTED', 'FILLED', 'ERROR')"
             " AND action IN ('BUY', 'SELL')"
             " AND (COALESCE(qty, 0) > 0 OR COALESCE(fill_qty, 0) > 0)"
         )
