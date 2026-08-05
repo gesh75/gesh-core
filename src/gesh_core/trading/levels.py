@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from datetime import UTC, datetime
 
 _log = logging.getLogger(__name__)
@@ -81,11 +82,18 @@ def _atr_levels(
     return round(entry_price + risk, 4), target
 
 
-# Per-(symbol, UTC-date) ATR cache — a symbol's ATR barely moves intraday, so one
-# fetch per day per symbol is plenty. Only SUCCESSFUL values are cached; a transient
-# failure is never cached, so it is retried on the next entry rather than poisoning
-# the whole day. Keeps the network cost off repeated same-day entries.
-_ATR_CACHE: dict[tuple[str, str], float] = {}
+# Per-(symbol, UTC-date) ATR cache. Failed fetches are cached too, preventing a bad
+# symbol/provider response from repeatedly consuming retries and provider quota.
+# The size cap also bounds memory when many distinct symbols are presented.
+_ATR_CACHE_MAX_SIZE = 1024
+_ATR_CACHE: dict[tuple[str, str], float | None] = {}
+_SYMBOL_RE = re.compile(r"[A-Z0-9][A-Z0-9.^=-]{0,31}", re.ASCII | re.IGNORECASE)
+
+
+def _cache_atr(key: tuple[str, str], value: float | None) -> None:
+    if key not in _ATR_CACHE and len(_ATR_CACHE) >= _ATR_CACHE_MAX_SIZE:
+        _ATR_CACHE.pop(next(iter(_ATR_CACHE)))
+    _ATR_CACHE[key] = value
 
 
 def _fetch_atr(symbol: str) -> float | None:
@@ -99,13 +107,16 @@ def _fetch_atr(symbol: str) -> float | None:
     ATR fired (with the value) or fell back (with the reason) for observability.
     Cached per symbol per UTC day. NOTE: callers should keep this OFF the DB-write
     path — see record_entry, which calls it with no open SQLite connection held."""
-    if not EQUITY_USE_ATR_STOPS or not symbol:
+    if (
+        not EQUITY_USE_ATR_STOPS
+        or not isinstance(symbol, str)
+        or _SYMBOL_RE.fullmatch(symbol) is None
+    ):
         return None
 
     key = (symbol, datetime.now(UTC).strftime("%Y-%m-%d"))
-    cached = _ATR_CACHE.get(key)
-    if cached is not None:
-        return cached
+    if key in _ATR_CACHE:
+        return _ATR_CACHE[key]
 
     try:
         # Use the shared market_fetch helper: yf.download (period="1y", which Yahoo
@@ -119,14 +130,16 @@ def _fetch_atr(symbol: str) -> float | None:
         o = fetch_ohlcv(symbol, period_days=60)
         if not o or len(o.get("close", [])) < EQUITY_ATR_PERIOD + 1:
             _log.info("ATR %s: fell back to flat stop (no/thin bars)", symbol)
+            _cache_atr(key, None)
             return None
 
         a = _atr_fn(o["high"], o["low"], o["close"], EQUITY_ATR_PERIOD)
         if a is None:
             _log.info("ATR %s: fell back to flat stop (ATR computed None)", symbol)
+            _cache_atr(key, None)
             return None
 
-        _ATR_CACHE[key] = a
+        _cache_atr(key, a)
         last_close = float(o["close"][-1])
         _log.info(
             "ATR %s: %.4f (%.2f%% of close) -> adaptive stop",
@@ -135,6 +148,7 @@ def _fetch_atr(symbol: str) -> float | None:
         return a
     except Exception as e:  # noqa: BLE001 — ATR is best-effort; flat stop is the safe fallback
         _log.info("ATR %s: fell back to flat stop (%s)", symbol, e.__class__.__name__)
+        _cache_atr(key, None)
         return None
 
 
