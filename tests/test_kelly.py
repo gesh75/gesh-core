@@ -6,6 +6,10 @@ on. Mirrors the product repo's tests/test_kelly.py so neither consumer regresses
 """
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+
 import numpy as np
 import pytest
 
@@ -28,6 +32,20 @@ NEGATIVE_DRIFT = (rng.normal(-0.003, 0.01, 120)).astype(float)  # downward drift
 
 def test_module_loads_from_gesh_core():
     assert "gesh_core" in (kelly.__file__ or "")
+
+
+@pytest.mark.parametrize("value", ["", "abc", "nan", "inf", "-0.1", "1.1"])
+def test_invalid_position_cap_env_fails_safe(value):
+    env = os.environ.copy()
+    env["KELLY_MAX_POSITION_PCT"] = value
+    proc = subprocess.run(
+        [sys.executable, "-c", "from gesh_core.kelly import MAX_POSITION_PCT; print(MAX_POSITION_PCT)"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert float(proc.stdout) == 0.25
 
 
 # ─── pure math ────────────────────────────────────────────────────────────────
