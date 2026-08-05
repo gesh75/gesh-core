@@ -32,6 +32,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -214,7 +215,7 @@ def scan_tax_loss_candidates(
         ticker = ticker.upper()
         price  = float(pos.get("price", 0) or 0)
         shares = float(pos.get("quantity", pos.get("shares", 0)) or 0)
-        if price <= 0 or shares <= 0:
+        if not isfinite(price) or not isfinite(shares) or price <= 0 or shares <= 0:
             continue
 
         # Cost basis: from map → from position dict. NEVER fall back to the
@@ -237,6 +238,8 @@ def scan_tax_loss_candidates(
             })
             continue
         cb = float(_cb)
+        if not isfinite(cb):
+            continue
         # Cent-precise loss in Decimal — float drift must not accumulate in the
         # summed harvestable total (M4).
         unrealised_d = ((_money(price) - _money(cb)) * _money(shares)).quantize(
