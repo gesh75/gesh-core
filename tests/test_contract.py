@@ -2,7 +2,7 @@
 
 The engine version is canonical, harmonized with product's stricter symbol cap.
 These pin the full TradeIntent contract + adapters so neither consumer regresses:
-  - manual() provenance: source= param (engine fix) defaults to "manual"
+  - manual() provenance: manual callers cannot claim an engine source
   - validate(): action/confidence/target/stop/take_profit/symbol rules
   - symbol cap: len > 12 (product's stricter rule, now shared)
   - from_consensus() verdict -> action/target mapping + scaling
@@ -20,7 +20,7 @@ def test_module_loads_from_gesh_core():
     assert "gesh_core" in (contract.__file__ or "")
 
 
-# ─── manual() provenance (engine fix) ─────────────────────────────────────────
+# ─── manual() provenance ──────────────────────────────────────────────────────
 
 
 def test_manual_defaults_to_manual_source():
@@ -31,9 +31,14 @@ def test_manual_defaults_to_manual_source():
     assert intent.confidence == 1.0
 
 
-def test_manual_source_override_for_engine_signals():
-    intent = manual("HOOD", "BUY", target_position_pct=0.02, source="market_scan")
-    assert intent.source == "market_scan"  # provenance preserved (2026-06-14 fix)
+def test_manual_rejects_engine_source_spoofing():
+    with pytest.raises(ValueError, match="must use source='manual'"):
+        manual("HOOD", "BUY", target_position_pct=0.02, source="market_scan")  # type: ignore[arg-type]
+
+
+def test_manual_accepts_explicit_manual_source_for_compatibility():
+    intent = manual("HOOD", "BUY", target_position_pct=0.02, source="manual")
+    assert intent.source == "manual"
 
 
 def test_manual_passes_through_levels():

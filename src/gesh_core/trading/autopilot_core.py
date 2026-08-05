@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable
 
-from .contract import TradeIntent, manual
+from .contract import TradeIntent
 
 # Job-marker key for the 08:30 → 09:35 candidate handoff.
 CANDIDATE_MARKER = "premarket_candidates"
@@ -70,10 +70,11 @@ def stop_sweep_intent(symbol: str, price: float, stop: float, book: str) -> Trad
     malformed (the product repo shipped exactly that bug). `book` labels the
     origin ("paper" | "live") in the rationale for the audit trail.
     """
-    return manual(
-        symbol, "SELL",
+    return TradeIntent(
+        symbol=symbol.upper(),
+        action="SELL",
         confidence=1.0,
+        source="stop_sweep",
         target_position_pct=0.0,
         rationale=f"EOD stop-loss breach ({book}): price={price:.2f} stop={stop:.2f}",
-        source="stop_sweep",
     )
