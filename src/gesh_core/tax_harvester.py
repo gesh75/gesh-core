@@ -26,6 +26,7 @@ DB table (auto-created in gesh_financial.db)
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 from collections.abc import Iterator
@@ -59,7 +60,7 @@ def _cents(d: Decimal) -> float:
 MIN_LOSS_USD: float = 500.0   # minimum unrealised loss to flag
 WASH_SALE_DAYS: int = 30      # IRS wash-sale window
 
-_FALLBACK_DB = Path("/tmp/gesh_trades.db")
+logger = logging.getLogger(__name__)
 
 
 def _primary_db() -> Path:
@@ -88,17 +89,20 @@ def _primary_db() -> Path:
 
 
 def _db_path() -> Path:
-    # VirtioFS DDL can fail on the shared mount — probe, fall back to /tmp.
+    """Resolve and verify the wash-sale database, failing closed on errors."""
     primary = _primary_db()
     try:
         primary.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(primary), timeout=5)
-        conn.execute("CREATE TABLE IF NOT EXISTS _probe (x INTEGER)")
-        conn.execute("DROP TABLE IF EXISTS _probe")
-        conn.close()
+        try:
+            conn.execute("CREATE TABLE IF NOT EXISTS _probe (x INTEGER)")
+            conn.execute("DROP TABLE IF EXISTS _probe")
+        finally:
+            conn.close()
         return primary
-    except Exception:
-        return _FALLBACK_DB
+    except (sqlite3.Error, OSError):
+        logger.exception("wash-sale database is not usable at %s", primary)
+        raise
 
 
 @contextmanager

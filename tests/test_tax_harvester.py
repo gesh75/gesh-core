@@ -6,6 +6,8 @@ GESH_TRACKER_DB so the real gesh_financial.db is never touched.
 """
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from gesh_core import tax_harvester as th
@@ -42,6 +44,16 @@ def test_resolver_falls_back_to_cwd(tmp_path, monkeypatch):
     monkeypatch.delenv("GESH_TRADING_HOME", raising=False)
     monkeypatch.chdir(tmp_path)
     assert th._primary_db() == tmp_path / "gesh_financial.db"
+
+
+def test_unusable_primary_fails_closed(tmp_path, monkeypatch):
+    """A corrupt wash-sale ledger must never be replaced by an empty DB."""
+    target = tmp_path / "corrupt.db"
+    target.write_bytes(b"not a sqlite database")
+    monkeypatch.setenv("GESH_TRACKER_DB", str(target))
+
+    with pytest.raises(sqlite3.DatabaseError):
+        th.get_wash_status("GGG")
 
 
 # ─── scan_tax_loss_candidates ─────────────────────────────────────────────────
