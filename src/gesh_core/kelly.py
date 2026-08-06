@@ -24,6 +24,8 @@ _DEFAULT_MAX_POSITION_PCT = 0.25
 
 def _parse_position_cap(value: str | None, fallback: float) -> float:
     """Return a finite position cap in the inclusive range [0, 1]."""
+    if value is None:
+        return fallback
     try:
         cap = float(value)
     except (TypeError, ValueError):
