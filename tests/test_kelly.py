@@ -34,6 +34,16 @@ def test_module_loads_from_gesh_core():
     assert "gesh_core" in (kelly.__file__ or "")
 
 
+def test_parse_position_cap_none_returns_fallback():
+    """mypy-safe None handling: os.getenv miss must not call float(None)."""
+    assert kelly._parse_position_cap(None, 0.25) == 0.25
+    assert kelly._parse_position_cap(None, 0.1) == 0.1
+
+
+def test_parse_position_cap_valid_string():
+    assert kelly._parse_position_cap("0.18", 0.25) == 0.18
+
+
 @pytest.mark.parametrize("value", ["", "abc", "nan", "inf", "-0.1", "1.1"])
 def test_invalid_position_cap_env_fails_safe(value):
     env = os.environ.copy()
