@@ -18,10 +18,10 @@ def test_package_and_runtime_version_match():
     # Declared as a LITERAL on purpose: bumping the version then requires editing
     # this line, so the release is reviewable rather than incidental.
     #
-    # 0.6.2 distinguishes this tree from the v0.6.1 TAG. Commits d4e9f46 (strict
-    # safety booleans) and 478cb89 landed after that tag while still declaring
-    # "0.6.1", so a version comparison could not tell the two trees apart and
-    # consumers had to pin by commit SHA to be unambiguous.
-    assert declared == "0.6.2"
-    assert runtime == "0.6.2"
+    # 0.7.0 = the gesh_core.dcf package (shared deterministic DCF valuation,
+    # extracted from gesh-project-trading — engine PRs #104/#108). Minor bump:
+    # additive public API (compute_fair_value, run_sensitivity, DCFInputs,
+    # value_with_assumptions), no changes to existing modules.
+    assert declared == "0.7.0"
+    assert runtime == "0.7.0"
     assert declared == runtime
