@@ -18,10 +18,10 @@ def test_package_and_runtime_version_match():
     # Declared as a LITERAL on purpose: bumping the version then requires editing
     # this line, so the release is reviewable rather than incidental.
     #
-    # 0.8.0 = DCF methodology revision (2026-08-08 practitioner review): operating
-    # NWC definition, Blume-adjusted beta default + fragility flag, multi-year-average
-    # ratio base case, sector/margin/non-positive refusals, re-derived guards.
-    # OUTPUT-CHANGING for every fair value — hence minor, not patch.
-    assert declared == "0.8.0"
-    assert runtime == "0.8.0"
+    # 0.8.1 = packaging fix: the wheel now ships dcf/vendor NOTICE.md +
+    # LICENSE-cookbooks (MIT attribution must travel with the installed package).
+    # 0.8.0 was the practitioner-review methodology revision (operating NWC,
+    # Blume beta + fragility flag, average-ratio base, refusal guards).
+    assert declared == "0.8.1"
+    assert runtime == "0.8.1"
     assert declared == runtime
