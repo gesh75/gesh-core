@@ -54,3 +54,10 @@ files = ["src"]
 ignore_missing_imports = true   # yfinance / praw / nltk ship no stubs
 warn_redundant_casts = true
 # Non-strict while the codebase adopts typing incrementally; tighten over time.
+
+# Vendored third-party code (anthropics/claude-cookbooks @ f65eb122, MIT — see
+# src/gesh_core/dcf/vendor/NOTICE.md) is byte-identical to upstream by policy and
+# is not edited in place, so it is excluded from the type gate.
+[[tool.mypy.overrides]]
+module = "gesh_core.dcf.vendor.*"
+ignore_errors = true
