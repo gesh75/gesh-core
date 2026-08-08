@@ -36,8 +36,10 @@ from gesh_core.dcf.fair_value import (
     DEFAULT_MARKET_PREMIUM,
     DEFAULT_TERMINAL_GROWTH,
     PROJECTION_YEARS,
-    _fetch_beta,
+    _avg_ratio,
+    _fetch_profile,
     _growth_path,
+    blume_beta,
     compute_fair_value,
     value_with_assumptions,
 )
@@ -45,20 +47,18 @@ from gesh_core.dcf.inputs import DCFInputs, fetch_dcf_inputs
 
 
 def _base_assumptions(data: DCFInputs) -> dict[str, Any]:
-    """Exactly the derivation compute_fair_value performs — kept in lockstep by test."""
+    """Exactly the derivation compute_fair_value performs — kept in lockstep by test.
+
+    Base = multi-year AVERAGE capex/NWC ratios since the 2026-08-08 methodology
+    review; latest-year is the scenario now, not the headline.
+    """
     base_revenue = data.revenue[-1]
     return {
         "growth": _growth_path(data.revenue, DEFAULT_TERMINAL_GROWTH, PROJECTION_YEARS),
         "margins": [data.ebitda[-1] / base_revenue] * PROJECTION_YEARS,
-        "capex_pct": data.capex[-1] / base_revenue,
-        "nwc_pct": data.nwc[-1] / base_revenue,
+        "capex_pct": _avg_ratio(data.capex, data.revenue),
+        "nwc_pct": _avg_ratio(data.nwc, data.revenue),
     }
-
-
-def _avg_ratio(numerators: tuple[float, ...], revenue: tuple[float, ...]) -> float:
-    """Across-years average of a per-year ratio — the anti-'latest-year-peak' probe."""
-    ratios = [n / r for n, r in zip(numerators, revenue, strict=True) if r]
-    return sum(ratios) / len(ratios)
 
 
 def run_sensitivity(symbol: str) -> dict[str, Any]:
@@ -68,7 +68,8 @@ def run_sensitivity(symbol: str) -> dict[str, Any]:
         return {"symbol": symbol, "error": base_result["error"]}
 
     data = fetch_dcf_inputs(symbol)
-    beta, _ = _fetch_beta(symbol)
+    raw_beta, beta_fetched, _sector = _fetch_profile(symbol)
+    beta = blume_beta(raw_beta) if beta_fetched else raw_beta
     base = _base_assumptions(data)
     base_fv = base_result["fair_value_per_share"]
 
@@ -85,8 +86,9 @@ def run_sensitivity(symbol: str) -> dict[str, Any]:
 
     avg_margin = _avg_ratio(data.ebitda, data.revenue)
     min_margin = min(e / r for e, r in zip(data.ebitda, data.revenue, strict=True))
-    avg_nwc = _avg_ratio(data.nwc, data.revenue)
-    avg_capex = _avg_ratio(data.capex, data.revenue)
+    base_revenue = data.revenue[-1]
+    latest_nwc = data.nwc[-1] / base_revenue if base_revenue else base["nwc_pct"]
+    latest_capex = data.capex[-1] / base_revenue if base_revenue else base["capex_pct"]
     flat_growth = [DEFAULT_TERMINAL_GROWTH] * PROJECTION_YEARS
 
     scenarios: list[dict[str, Any]] = [
@@ -98,11 +100,11 @@ def run_sensitivity(symbol: str) -> dict[str, Any]:
         {"variable": "revenue_growth", "base_desc": f"CAGR decay from {base['growth'][0]:.1%}",
          "low": value(growth=flat_growth), "low_desc": "straight to terminal 3%",
          "high": None, "high_desc": "—"},
-        {"variable": "nwc_ratio", "base_desc": f"latest {base['nwc_pct']:.1%}",
-         "low": value(nwc_pct=avg_nwc), "low_desc": f"3yr avg {avg_nwc:.1%}",
+        {"variable": "nwc_ratio", "base_desc": f"3yr avg {base['nwc_pct']:.1%}",
+         "low": value(nwc_pct=latest_nwc), "low_desc": f"latest yr {latest_nwc:.1%}",
          "high": None, "high_desc": "—"},
-        {"variable": "capex_ratio", "base_desc": f"latest {base['capex_pct']:.1%}",
-         "low": value(capex_pct=avg_capex), "low_desc": f"3yr avg {avg_capex:.1%}",
+        {"variable": "capex_ratio", "base_desc": f"3yr avg {base['capex_pct']:.1%}",
+         "low": value(capex_pct=latest_capex), "low_desc": f"latest yr {latest_capex:.1%}",
          "high": None, "high_desc": "—"},
         {"variable": "terminal_growth", "base_desc": "3.0%",
          "low": value(_terminal=0.02), "low_desc": "2.0%",
@@ -113,8 +115,8 @@ def run_sensitivity(symbol: str) -> dict[str, Any]:
         # Beta is the probe that resolved MPC: measured 0.51 -> +84% vs market; stressed
         # to 1.0 -> -1%. A 2-year regression beta on a commodity cyclical carries the
         # whole valuation, so the tornado must show it, not bury it inside WACC.
-        {"variable": "beta", "base_desc": f"measured {beta:.2f}",
-         "low": value(_beta=min(beta * 1.5, 2.0)), "low_desc": f"x1.5 = {min(beta * 1.5, 2.0):.2f}",
+        {"variable": "beta", "base_desc": f"Blume {beta:.2f} (raw {raw_beta:.2f})",
+         "low": value(_beta=raw_beta), "low_desc": f"raw regression {raw_beta:.2f}",
          "high": value(_beta=1.0), "high_desc": "market beta 1.00"},
     ]
     for s in scenarios:
@@ -122,10 +124,7 @@ def run_sensitivity(symbol: str) -> dict[str, Any]:
         s["swing"] = round(max(abs(v - base_fv) for v in outputs), 2) if outputs else 0.0
     scenarios.sort(key=lambda s: -s["swing"])
 
-    bear = value(
-        margins=[avg_margin] * PROJECTION_YEARS, growth=flat_growth,
-        nwc_pct=avg_nwc, capex_pct=avg_capex,
-    )
+    bear = value(margins=[avg_margin] * PROJECTION_YEARS, growth=flat_growth)
 
     return {
         "symbol": symbol,

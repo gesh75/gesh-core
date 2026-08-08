@@ -39,6 +39,13 @@ _CAPEX_ROWS = ("Capital Expenditure",)
 _TAX_ROWS = ("Tax Rate For Calcs",)
 _CUR_ASSET_ROWS = ("Current Assets",)
 _CUR_LIAB_ROWS = ("Current Liabilities",)
+# Operating-NWC exclusions (methodology review, 2026-08-08): cash/ST investments and
+# ST debt are FINANCING items — including them made IONQ's "NWC" read 1861% of revenue
+# (raise proceeds, not operations). Absent rows subtract as 0: many filers simply have
+# no ST debt line, and treating absence as zero is the standard convention, not a guess.
+_CASH_TOTAL_ROWS = ("Cash Cash Equivalents And Short Term Investments",)
+_CASH_PART_ROWS = ("Cash And Cash Equivalents", "Other Short Term Investments")
+_ST_DEBT_ROWS = ("Current Debt And Capital Lease Obligation", "Current Debt")
 _CASH_ROWS = ("Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments")
 _DEBT_ROWS = ("Total Debt",)
 _SHARE_ROWS = ("Ordinary Shares Number", "Share Issued")
@@ -183,7 +190,21 @@ def fetch_dcf_inputs(symbol: str, periods: int = 3) -> DCFInputs:
     # true invariant there, not a hope.
     if by_date["cur_assets"] and by_date["cur_liab"]:
         assets, liabilities = _col("cur_assets"), _col("cur_liab")
-        nwc = tuple(a - liability for a, liability in zip(assets, liabilities, strict=True))
+
+        def _optional(rows: tuple[str, ...]) -> tuple[float, ...]:
+            series = _row_by_date(balance, rows)
+            return tuple((series or {}).get(d, 0.0) for d in dates)
+
+        # Prefer the combined cash+ST-investments total; fall back to summing parts.
+        cash_like = _optional(_CASH_TOTAL_ROWS)
+        if not any(cash_like):
+            parts = [_optional((r,)) for r in _CASH_PART_ROWS]
+            cash_like = tuple(sum(vals) for vals in zip(*parts, strict=True))
+        st_debt = _optional(_ST_DEBT_ROWS)
+        nwc = tuple(
+            (a - c) - (liability - d)
+            for a, c, liability, d in zip(assets, cash_like, liabilities, st_debt, strict=True)
+        )
     else:
         nwc = ()
 

@@ -18,10 +18,10 @@ def test_package_and_runtime_version_match():
     # Declared as a LITERAL on purpose: bumping the version then requires editing
     # this line, so the release is reviewable rather than incidental.
     #
-    # 0.7.0 = the gesh_core.dcf package (shared deterministic DCF valuation,
-    # extracted from gesh-project-trading — engine PRs #104/#108). Minor bump:
-    # additive public API (compute_fair_value, run_sensitivity, DCFInputs,
-    # value_with_assumptions), no changes to existing modules.
-    assert declared == "0.7.0"
-    assert runtime == "0.7.0"
+    # 0.8.0 = DCF methodology revision (2026-08-08 practitioner review): operating
+    # NWC definition, Blume-adjusted beta default + fragility flag, multi-year-average
+    # ratio base case, sector/margin/non-positive refusals, re-derived guards.
+    # OUTPUT-CHANGING for every fair value — hence minor, not patch.
+    assert declared == "0.8.0"
+    assert runtime == "0.8.0"
     assert declared == runtime
