@@ -231,7 +231,7 @@ def validate_action(
     """
     cfg = load_config()
 
-    if action not in TRADE_ACTIONS:
+    if not isinstance(action, str) or action not in TRADE_ACTIONS:
         return False, "Invalid action — expected BUY, ADD, TRIM, or SELL"
 
     # 1. Auto-trade gate
