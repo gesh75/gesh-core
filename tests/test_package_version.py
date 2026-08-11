@@ -18,10 +18,10 @@ def test_package_and_runtime_version_match():
     # Declared as a LITERAL on purpose: bumping the version then requires editing
     # this line, so the release is reviewable rather than incidental.
     #
-    # 0.6.2 distinguishes this tree from the v0.6.1 TAG. Commits d4e9f46 (strict
-    # safety booleans) and 478cb89 landed after that tag while still declaring
-    # "0.6.1", so a version comparison could not tell the two trees apart and
-    # consumers had to pin by commit SHA to be unambiguous.
-    assert declared == "0.6.2"
-    assert runtime == "0.6.2"
+    # 0.8.1 = packaging fix: the wheel now ships dcf/vendor NOTICE.md +
+    # LICENSE-cookbooks (MIT attribution must travel with the installed package).
+    # 0.8.0 was the practitioner-review methodology revision (operating NWC,
+    # Blume beta + fragility flag, average-ratio base, refusal guards).
+    assert declared == "0.8.1"
+    assert runtime == "0.8.1"
     assert declared == runtime

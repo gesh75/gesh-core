@@ -2,9 +2,17 @@
 requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
+# MIT attribution must TRAVEL WITH THE INSTALLED PACKAGE: consumers import the
+# vendored cookbook code from the wheel, so the wheel must carry its license and
+# provenance, not just the git tree. (Found by the product repo's
+# test_vendored_code_keeps_its_licence_and_notice once dcf_fair_value resolved
+# into the installed distribution.)
+[tool.setuptools.package-data]
+"gesh_core.dcf.vendor" = ["NOTICE.md", "LICENSE-cookbooks"]
+
 [project]
 name = "gesh-core"
-version = "0.6.2"
+version = "0.8.1"
 description = "Shared core modules for the GESH Financial engine and product repos (de-duplication / drift control)."
 requires-python = ">=3.12"
 # Direct third-party imports across the extracted modules:
@@ -54,3 +62,10 @@ files = ["src"]
 ignore_missing_imports = true   # yfinance / praw / nltk ship no stubs
 warn_redundant_casts = true
 # Non-strict while the codebase adopts typing incrementally; tighten over time.
+
+# Vendored third-party code (anthropics/claude-cookbooks @ f65eb122, MIT — see
+# src/gesh_core/dcf/vendor/NOTICE.md) is byte-identical to upstream by policy and
+# is not edited in place, so it is excluded from the type gate.
+[[tool.mypy.overrides]]
+module = "gesh_core.dcf.vendor.*"
+ignore_errors = true
