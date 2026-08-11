@@ -48,6 +48,16 @@ def test_validate_action_rejects_noncanonical_action(tmp_path, monkeypatch):
         assert "Invalid action" in reason
 
 
+def test_validate_action_rejects_unhashable_action():
+    """JSON arrays and objects must fail closed rather than raising TypeError."""
+    for action in ([], {}):
+        ok, reason = ac.validate_action(
+            action, "NVDA", 100.0, open_positions=0, current_cash=100_000
+        )
+        assert ok is False
+        assert "Invalid action" in reason
+
+
 def test_validate_action_respects_cwd_config(tmp_path, monkeypatch):
     # Point config at a temp dir with auto_trade ON; gate logic should engage.
     cfg = dict(ac.DEFAULT_CONFIG)
