@@ -336,6 +336,8 @@ def test_operating_revenue_fallback_when_total_revenue_absent(monkeypatch):
 
 
 def test_available_requires_aligned_lengths():
+    """Length equality is the anti-misdate contract: a short nwc next to a
+    full revenue series would pair the wrong fiscal years without raising."""
     short = DCFInputs(
         symbol="X",
         years=(2024, 2025),
@@ -349,6 +351,32 @@ def test_available_requires_aligned_lengths():
     )
     assert short.available is False
     assert MIN_PERIODS == 3
+
+    mismatched = DCFInputs(
+        symbol="X",
+        years=(2023, 2024, 2025),
+        revenue=(1.0, 2.0, 3.0),
+        ebitda=(1.0, 2.0, 3.0),
+        capex=(0.1, 0.2, 0.3),
+        nwc=(0.2, 0.3),
+        tax_rate=0.2,
+        shares_outstanding=10.0,
+        net_debt=0.0,
+    )
+    assert mismatched.available is False
+
+    aligned = DCFInputs(
+        symbol="X",
+        years=(2023, 2024, 2025),
+        revenue=(1.0, 2.0, 3.0),
+        ebitda=(1.0, 2.0, 3.0),
+        capex=(0.1, 0.2, 0.3),
+        nwc=(0.2, 0.3, 0.4),
+        tax_rate=0.2,
+        shares_outstanding=10.0,
+        net_debt=0.0,
+    )
+    assert aligned.available is True
 
 
 # ─── profile fetch (beta bounds) ──────────────────────────────────────────────

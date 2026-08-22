@@ -239,10 +239,40 @@ def test_sell_and_trim_ignore_position_and_cash_floors(tmp_path, monkeypatch):
         assert ok is True, (action, reason)
 
 
+def test_add_still_obeys_position_and_cash_floors(tmp_path, monkeypatch):
+    """ADD is an entry — the SELL/TRIM exemption must not leak onto it."""
+    _write_live_config(tmp_path, monkeypatch)
+    ok, reason = ac.validate_action(
+        "ADD", "NVDA", 100.0, open_positions=5, current_cash=100_000
+    )
+    assert ok is False
+    assert "max open positions" in reason
+    ok, reason = ac.validate_action(
+        "ADD", "NVDA", 100.0, open_positions=1, current_cash=10.0
+    )
+    assert ok is False
+    assert "minimum buffer" in reason
+
+
+def test_sell_still_requires_auto_trade(tmp_path, monkeypatch):
+    """Exit exemption is only for position/cash floors, not the live-execution gate."""
+    _write_live_config(tmp_path, monkeypatch, auto_trade=False)
+    ok, reason = ac.validate_action(
+        "SELL", "NVDA", 100.0, open_positions=5, current_cash=10.0
+    )
+    assert ok is False
+    assert "Auto-trade is OFF" in reason
+
+
 def test_daily_timeframe_skips_scanner_price_filter(tmp_path, monkeypatch):
     _write_live_config(tmp_path, monkeypatch, scanner_timeframe="daily")
     ok, reason = ac.validate_action(
         "BUY", "NVDA", 100.0, 0, current_cash=100_000, current_price=0.01
+    )
+    assert ok is True, reason
+    # Ceiling is also skipped — $50 is above the $10 penny-universe max.
+    ok, reason = ac.validate_action(
+        "BUY", "NVDA", 100.0, 0, current_cash=100_000, current_price=50.0
     )
     assert ok is True, reason
 
