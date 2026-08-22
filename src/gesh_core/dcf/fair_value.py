@@ -20,8 +20,8 @@ A DCF is only as good as its assumptions; this prints them so a wrong valuation 
 traceable to a stated input rather than to a hidden constant (rules #45/#51/#59).
 
 CLI:
-    venv/bin/python3 -m trading.dcf_fair_value --symbol AMD
-    venv/bin/python3 -m trading.dcf_fair_value --symbol AMD --terminal-growth 0.025 --json
+    python -m gesh_core.dcf --symbol AMD
+    python -m gesh_core.dcf.fair_value --symbol AMD --terminal-growth 0.025 --json
 """
 
 from __future__ import annotations
@@ -136,11 +136,17 @@ def blume_beta(raw: float) -> float:
 def _avg_ratio(numerators: tuple[float, ...], revenue: tuple[float, ...]) -> float:
     """Mean of per-year ratios — the normalized base (latest year is a scenario now)."""
     ratios = [n / r for n, r in zip(numerators, revenue, strict=True) if r]
+    if not ratios:
+        raise ValueError(
+            "no positive-revenue periods to form a ratio — percent-of-revenue DCF is undefined"
+        )
     return sum(ratios) / len(ratios)
 
 
 def _growth_path(revenue: tuple[float, ...], terminal: float, years: int) -> list[float]:
     """Decay historical revenue CAGR toward terminal growth. An ASSUMPTION, not data."""
+    if years < 2:
+        return [terminal] * max(years, 0)
     if len(revenue) < 2 or revenue[0] <= 0:
         return [terminal] * years
     cagr = (revenue[-1] / revenue[0]) ** (1 / (len(revenue) - 1)) - 1
@@ -170,6 +176,10 @@ def value_with_assumptions(
     responsible for the method-validity guards; the only check here is the mathematical
     one (Gordon growth needs g < WACC — the vendored model does not guard it).
     """
+    if not data.revenue or any(r <= 0 for r in data.revenue):
+        return {
+            "error": "non-positive or missing revenue — percent-of-revenue DCF is undefined",
+        }
     model = _SeededDCFModel(data.symbol)
     model.set_historical_financials(
         revenue=list(data.revenue), ebitda=list(data.ebitda),
@@ -235,7 +245,8 @@ def compute_fair_value(
         }
 
     raw_beta, beta_fetched, sector = _fetch_profile(symbol)
-    if sector in _EXCLUDED_SECTORS:
+    excluded = {s.casefold() for s in _EXCLUDED_SECTORS}
+    if (sector or "").strip().casefold() in excluded:
         return {
             "symbol": symbol,
             "error": f"sector '{sector}' — NOPAT/percent-of-revenue DCF does not apply "
@@ -257,8 +268,11 @@ def compute_fair_value(
     # Multi-year AVERAGE ratios are the base case (methodology review item 3): a single
     # latest-year point bakes a working-capital peak/trough into all five projection
     # years. "Latest year" is now a sensitivity scenario, not the headline.
-    capex_pct = _avg_ratio(data.capex, data.revenue)
-    nwc_pct = _avg_ratio(data.nwc, data.revenue)
+    try:
+        capex_pct = _avg_ratio(data.capex, data.revenue)
+        nwc_pct = _avg_ratio(data.nwc, data.revenue)
+    except ValueError as exc:
+        return {"symbol": symbol, "error": str(exc), "fetched": True}
 
     # A percent-of-revenue projection assumes revenue is the thing that scales working
     # capital and capex. That breaks for companies whose balance sheet dwarfs their
@@ -332,12 +346,16 @@ def compute_fair_value(
             "ebitda": [round(v) for v in data.ebitda], "capex": [round(v) for v in data.capex],
             "tax_rate": data.tax_rate, "shares_m": data.shares_outstanding,
             "net_debt_musd": data.net_debt, "beta_raw": raw_beta,
+            "nwc": [round(v) for v in data.nwc],
+            "capex_pct": round(capex_pct, 4), "nwc_pct": round(nwc_pct, 4),
             "beta": beta, "beta_is_blume_adjusted": beta_fetched,
             "beta_fetched": beta_fetched, "sector": sector,
         },
         "assumptions": {
             "revenue_growth": [round(g, 4) for g in growth],
             "ebitda_margin_flat": round(last_margin, 4),
+            "capex_pct": round(capex_pct, 4),
+            "nwc_pct": round(nwc_pct, 4),
             "terminal_growth": terminal_growth, "risk_free": risk_free,
             "market_premium": market_premium, "cost_of_debt": cost_of_debt,
             "debt_to_equity": debt_to_equity,
@@ -376,10 +394,16 @@ def main() -> int:
     print("\n  FETCHED (statements):")
     print(f"    years {fetched['years']}  revenue {fetched['revenue']}")
     print(f"    ebitda {fetched['ebitda']}  capex {fetched['capex']}")
+    print(f"    nwc {fetched['nwc']}  capex/rev {fetched['capex_pct']:.1%}  "
+          f"nwc/rev {fetched['nwc_pct']:.1%}")
     print(f"    tax {fetched['tax_rate']}  shares {fetched['shares_m']}M  "
           f"net_debt ${fetched['net_debt_musd']:,.0f}M")
     print(f"    beta {fetched['beta']}"
           f"{'' if fetched['beta_fetched'] else '  (DEFAULT — not fetched)'}")
+    if result.get("beta_sensitivity"):
+        bs = result["beta_sensitivity"]
+        flag = "  FRAGILE" if bs.get("fragile") else ""
+        print(f"    beta swing vs market-1.0 {bs['swing_pct']:.1f}%{flag}")
     print("\n  ASSUMED (not data):")
     print(f"    revenue growth {[f'{g:.1%}' for g in assumed['revenue_growth']]}")
     print(f"    ebitda margin held flat at {assumed['ebitda_margin_flat']:.1%}")

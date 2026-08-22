@@ -22,8 +22,8 @@ The base case is derived by the same code `compute_fair_value` uses, so the torn
 center is guaranteed to be the number being audited, not a near-copy of it.
 
 CLI:
-    venv/bin/python3 -m trading.dcf_sensitivity --symbol MPC
-    venv/bin/python3 -m trading.dcf_sensitivity --symbol MPC --json
+    python -m gesh_core.dcf.sensitivity --symbol MPC
+    python -m gesh_core.dcf.sensitivity --symbol MPC --json
 """
 
 from __future__ import annotations

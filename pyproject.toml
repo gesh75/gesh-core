@@ -12,9 +12,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gesh-core"
-version = "0.8.1"
+version = "0.8.2"
 description = "Shared core modules for the GESH Financial engine and product repos (de-duplication / drift control)."
 requires-python = ">=3.12"
+authors = [{name = "gesh75"}]
+readme = "README.md"
 # Direct third-party imports across the extracted modules:
 #   numpy    — ecg, kelly, trading.indicators (module-level)
 #   yfinance — kelly._fetch_returns (module-top import → hard dep); market_fetch
@@ -34,9 +36,14 @@ dependencies = [
 # present, but both are OPTIONAL — it degrades to the Reddit JSON API + keyword
 # scoring via `requests`, so they are intentionally NOT hard dependencies.
 
+[project.urls]
+Repository = "https://github.com/gesh75/gesh-core"
+Issues = "https://github.com/gesh75/gesh-core/issues"
+Changelog = "https://github.com/gesh75/gesh-core/blob/main/CHANGELOG.md"
+
 [project.optional-dependencies]
-test = ["pytest>=8"]
-dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
+test = ["pytest>=8", "pytest-cov>=5"]
+dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6", "mypy>=1.11"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
