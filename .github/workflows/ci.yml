@@ -74,6 +74,8 @@ jobs:
               rel = path.relative_to("src").with_suffix("").as_posix().replace("/", ".")
               if rel.endswith(".__init__"):
                   rel = rel[: -len(".__init__")]
+              if rel.endswith(".__main__"):
+                  continue
               mods.add(rel)
           for name in sorted(mods):
               importlib.import_module(name)

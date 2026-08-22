@@ -228,6 +228,8 @@ def test_every_non_vendor_module_imports():
         rel = path.relative_to(root.parent).with_suffix("").as_posix().replace("/", ".")
         if rel.endswith(".__init__"):
             rel = rel[: -len(".__init__")]
+        if rel.endswith(".__main__"):
+            continue
         mods.add(rel)
     assert "gesh_core.dcf" in mods
     assert "gesh_core.dcf.fair_value" in mods
