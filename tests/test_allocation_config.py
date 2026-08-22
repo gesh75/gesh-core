@@ -11,7 +11,20 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 import gesh_core.allocation_config as ac
+
+
+def _write_live_config(tmp_path, monkeypatch, **overrides):
+    """Persist a config with auto_trade ON so later gates are reachable."""
+    cfg = dict(ac.DEFAULT_CONFIG)
+    cfg["auto_trade"] = True
+    cfg.update(overrides)
+    path = tmp_path / "gesh_config.json"
+    path.write_text(json.dumps(cfg))
+    monkeypatch.setenv("GESH_CONFIG_PATH", str(path))
+    return cfg
 
 
 def test_module_loads_from_gesh_core():
@@ -190,7 +203,90 @@ def test_unknown_keys_still_pass_through(tmp_path, monkeypatch):
     assert ac.load_config()["future_knob"] == {"nested": True}
 
 
-def test_update_config_rejects_wrong_type():
-    import pytest
+def test_update_config_rejects_wrong_type(tmp_path, monkeypatch):
+    _write_live_config(tmp_path, monkeypatch)
     with pytest.raises(ValueError, match="auto_trade"):
         ac.update_config(auto_trade="yes")
+
+
+def test_update_config_rejects_unknown_key(tmp_path, monkeypatch):
+    _write_live_config(tmp_path, monkeypatch)
+    with pytest.raises(ValueError, match="Unknown config key"):
+        ac.update_config(not_a_real_knob=1)
+
+
+def test_options_trade_uses_options_cap_not_stock_cap(tmp_path, monkeypatch):
+    _write_live_config(tmp_path, monkeypatch)
+    # 3500 is under the $5000 stock cap but over the $2000 options cap.
+    ok, reason = ac.validate_action(
+        "BUY", "NVDA", 3_500.0, 0, current_cash=100_000, is_options=True
+    )
+    assert ok is False
+    assert "options" in reason
+    ok, _ = ac.validate_action(
+        "BUY", "NVDA", 3_500.0, 0, current_cash=100_000, is_options=False
+    )
+    assert ok is True
+
+
+def test_sell_and_trim_ignore_position_and_cash_floors(tmp_path, monkeypatch):
+    """Exits must not be blocked by the entry-only position/cash gates."""
+    _write_live_config(tmp_path, monkeypatch)
+    for action in ("SELL", "TRIM"):
+        ok, reason = ac.validate_action(
+            action, "NVDA", 100.0, open_positions=5, current_cash=10.0
+        )
+        assert ok is True, (action, reason)
+
+
+def test_daily_timeframe_skips_scanner_price_filter(tmp_path, monkeypatch):
+    _write_live_config(tmp_path, monkeypatch, scanner_timeframe="daily")
+    ok, reason = ac.validate_action(
+        "BUY", "NVDA", 100.0, 0, current_cash=100_000, current_price=0.01
+    )
+    assert ok is True, reason
+
+
+def test_intraday_enforces_price_floor_but_not_the_penny_ceiling(tmp_path, monkeypatch):
+    _write_live_config(tmp_path, monkeypatch, scanner_timeframe="1HR")
+    ok, reason = ac.validate_action(
+        "BUY", "PENNY", 100.0, 0, current_cash=100_000, current_price=0.01
+    )
+    assert ok is False
+    assert "below scanner minimum" in reason
+
+    # $50 is above scanner_price_max ($10), but 1HR is not a PRICE_CAPPED mode.
+    ok, reason = ac.validate_action(
+        "BUY", "NVDA", 100.0, 0, current_cash=100_000, current_price=50.0
+    )
+    assert ok is True, reason
+
+
+def test_stock_mode_enforces_price_ceiling(tmp_path, monkeypatch):
+    _write_live_config(tmp_path, monkeypatch, scanner_timeframe="stock")
+    ok, reason = ac.validate_action(
+        "BUY", "NVDA", 100.0, 0, current_cash=100_000, current_price=50.0
+    )
+    assert ok is False
+    assert "above scanner maximum" in reason
+
+
+def test_nonpositive_price_max_disables_ceiling(tmp_path, monkeypatch):
+    _write_live_config(
+        tmp_path, monkeypatch, scanner_timeframe="stock", scanner_price_max=0
+    )
+    ok, reason = ac.validate_action(
+        "BUY", "NVDA", 100.0, 0, current_cash=100_000, current_price=50.0
+    )
+    assert ok is True, reason
+
+
+def test_get_allocation_summary_scales_buying_power(tmp_path, monkeypatch):
+    _write_live_config(
+        tmp_path, monkeypatch, stock_allocation_pct=70.0, options_allocation_pct=30.0
+    )
+    summary = ac.get_allocation_summary(buying_power=10_000.0)
+    assert summary["stock_allocation_usd"] == 7_000.0
+    assert summary["options_allocation_usd"] == 3_000.0
+    assert summary["remaining_usd"] == 0.0
+    assert summary["auto_trade"] is True
