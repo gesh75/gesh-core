@@ -17,7 +17,7 @@
     border:1px solid var(--border);background:var(--surface);padding:6px 14px;border-radius:999px;margin-bottom:20px}
   h1{font-size:60px;font-weight:800;letter-spacing:-.02em;background:linear-gradient(90deg,#fff,var(--cyan) 55%,var(--green));-webkit-background-clip:text;background-clip:text;color:transparent}
   .tag{font-family:var(--mono);color:var(--muted);margin:8px 0 6px;font-size:14px}
-  .sub{color:var(--muted);font-size:17px;max-width:600px;margin-bottom:14px}
+  .sub{color:var(--muted);font-size:17px;max-width:640px;margin-bottom:14px}
   .pills{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:34px}
   .pill{font-family:var(--mono);font-size:12px;padding:6px 13px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--muted)}
   .pill b{color:var(--green)}
@@ -40,14 +40,14 @@
 <div class="wrap">
   <div class="badge">GESH Financial · shared core</div>
   <h1>gesh-core</h1>
-  <div class="tag">single source of truth · v0.1.0 · CI green</div>
-  <p class="sub">The package that de-duplicates the GESH engine and product repos — 11 shared modules,
-    121 parity tests, drift made structurally impossible.</p>
+  <div class="tag">single source of truth · v0.8.1 · pin by SHA</div>
+  <p class="sub">The package that de-duplicates the GESH engine and product repos —
+    Phase 3 plus DCF, ledger, fetch, and autopilot fragments. Drift is structurally impossible.</p>
   <div class="pills">
-    <span class="pill"><b>11</b> modules</span>
-    <span class="pill"><b>121</b> tests</span>
+    <span class="pill"><b>17</b> shared surfaces</span>
+    <span class="pill"><b>303</b> tests</span>
     <span class="pill"><b>2</b> repos</span>
-    <span class="pill"><b>0</b> regressions</span>
+    <span class="pill">tag <b>v0.6.1</b> stale</span>
   </div>
   <div class="cards">
     <a class="card" href="architecture.html">
@@ -62,9 +62,22 @@
       <p>The 11-node vs 9-node comparison and the staged convergence roadmap (proposal, sign-off gated).</p>
       <span class="go">Open dashboard →</span>
     </a>
+    <a class="card" href="DCF.md">
+      <div class="ic">Σ</div>
+      <h2>Deterministic DCF</h2>
+      <p>Statement-based fair value: fetched vs assumed, refusal guards, CLI, vendor cookbook policy.</p>
+      <span class="go">Open DCF.md →</span>
+    </a>
+    <a class="card b" href="LEDGER_PHASE4A.md">
+      <div class="ic">📒</div>
+      <h2>Decision ledger</h2>
+      <p>Phase 4A/4B snapshots, tenant isolation, recommendation identity v2, recording orchestration.</p>
+      <span class="go">Open LEDGER_PHASE4A.md →</span>
+    </a>
   </div>
   <div class="links">
     <a href="ARCHITECTURE.md">ARCHITECTURE.md</a>
+    <a href="DCF.md">DCF.md</a>
     <a href="CONSENSUS_CONVERGENCE.md">CONSENSUS_CONVERGENCE.md</a>
     <a href="https://github.com/gesh75/gesh-core">repo ↗</a>
   </div>
