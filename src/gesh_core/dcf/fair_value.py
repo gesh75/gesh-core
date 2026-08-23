@@ -135,7 +135,7 @@ def blume_beta(raw: float) -> float:
 
 def _avg_ratio(numerators: tuple[float, ...], revenue: tuple[float, ...]) -> float:
     """Mean of per-year ratios — the normalized base (latest year is a scenario now)."""
-    ratios = [n / r for n, r in zip(numerators, revenue, strict=True) if r]
+    ratios = [n / r for n, r in zip(numerators, revenue, strict=True) if r > 0]
     if not ratios:
         raise ValueError(
             "no positive-revenue periods to form a ratio — percent-of-revenue DCF is undefined"

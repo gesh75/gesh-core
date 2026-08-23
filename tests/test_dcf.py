@@ -60,12 +60,19 @@ def test_blume_beta_is_the_disclosed_shrinkage():
 
 
 def test_avg_ratio_skips_zero_revenue_years():
-    assert _avg_ratio((10.0, 20.0), (100.0, 200.0)) == pytest.approx(0.10)
+    # Zero-revenue years are dropped, not treated as a 0% ratio and not a crash.
+    assert _avg_ratio((10.0, 99.0, 20.0), (100.0, 0.0, 200.0)) == pytest.approx(0.10)
 
 
 def test_avg_ratio_fails_closed_when_every_revenue_is_zero():
     with pytest.raises(ValueError, match="no positive-revenue"):
         _avg_ratio((1.0, 2.0, 3.0), (0.0, 0.0, 0.0))
+
+
+def test_avg_ratio_fails_closed_when_every_revenue_is_negative():
+    """`if r` is true for negatives; the contract is positive-revenue periods only."""
+    with pytest.raises(ValueError, match="no positive-revenue"):
+        _avg_ratio((1.0, 2.0), (-100.0, -200.0))
 
 
 def test_growth_path_decays_cagr_toward_terminal():
@@ -205,6 +212,26 @@ def test_unavailable_inputs_return_error_not_a_guess(monkeypatch):
     assert result["fetched"] is False
     assert "error" in result
     assert "fair_value_per_share" not in result
+
+
+def test_compute_fair_value_fails_closed_on_all_zero_revenue(monkeypatch):
+    """Public API must return a named error, not ZeroDivisionError / a guessed margin."""
+    _patch_fetch(monkeypatch, _ok_inputs(revenue=(0.0, 0.0, 0.0)))
+    result = compute_fair_value("ZZZ")
+    assert "error" in result
+    assert result["fetched"] is True
+    assert "fair_value_per_share" not in result
+    assert "revenue" in result["error"]
+
+
+def test_compute_fair_value_fails_closed_on_mixed_zero_revenue(monkeypatch):
+    """A single zero year is enough: the valuation core refuses, it does not skip."""
+    _patch_fetch(monkeypatch, _ok_inputs(revenue=(0.0, 22_000.0, 25_000.0)))
+    result = compute_fair_value("ZZZ")
+    assert "error" in result
+    assert result["fetched"] is True
+    assert "fair_value_per_share" not in result
+    assert "revenue" in result["error"]
 
 
 # ─── package surface ──────────────────────────────────────────────────────────
