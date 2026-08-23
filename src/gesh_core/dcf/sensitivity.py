@@ -53,9 +53,12 @@ def _base_assumptions(data: DCFInputs) -> dict[str, Any]:
     review; latest-year is the scenario now, not the headline.
     """
     base_revenue = data.revenue[-1]
+    # Same guard compute_fair_value uses: a zero latest year must not crash the
+    # tornado after a successful headline DCF (which defaults that margin to 20%).
+    last_margin = data.ebitda[-1] / base_revenue if base_revenue else 0.20
     return {
         "growth": _growth_path(data.revenue, DEFAULT_TERMINAL_GROWTH, PROJECTION_YEARS),
-        "margins": [data.ebitda[-1] / base_revenue] * PROJECTION_YEARS,
+        "margins": [last_margin] * PROJECTION_YEARS,
         "capex_pct": _avg_ratio(data.capex, data.revenue),
         "nwc_pct": _avg_ratio(data.nwc, data.revenue),
     }
