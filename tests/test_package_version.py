@@ -18,10 +18,14 @@ def test_package_and_runtime_version_match():
     # Declared as a LITERAL on purpose: bumping the version then requires editing
     # this line, so the release is reviewable rather than incidental.
     #
+    # 0.8.2 = DCF characterization tests + fail-closed empty-ratio / zero-revenue
+    # guards + capex/nwc disclosed on every result (methodology review item that
+    # never made it into the returned assumptions dict). CI import discovery is
+    # now filesystem-driven so dcf/ledger/sentiment cannot silently drop out.
     # 0.8.1 = packaging fix: the wheel now ships dcf/vendor NOTICE.md +
     # LICENSE-cookbooks (MIT attribution must travel with the installed package).
     # 0.8.0 was the practitioner-review methodology revision (operating NWC,
     # Blume beta + fragility flag, average-ratio base, refusal guards).
-    assert declared == "0.8.1"
-    assert runtime == "0.8.1"
+    assert declared == "0.8.2"
+    assert runtime == "0.8.2"
     assert declared == runtime

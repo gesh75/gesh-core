@@ -21,8 +21,8 @@ a DCF built on an invented capex reads as a real valuation forever after. Caller
 check `.available` before using any figure.
 
 CLI:
-    venv/bin/python3 -m trading.dcf_inputs --symbol AMD
-    venv/bin/python3 -m trading.dcf_inputs --symbol AMD --json
+    python -m gesh_core.dcf.inputs --symbol AMD
+    python -m gesh_core.dcf.inputs --symbol AMD --json
 """
 
 from __future__ import annotations

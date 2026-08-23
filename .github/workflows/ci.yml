@@ -64,17 +64,23 @@ jobs:
         run: |
           python - <<'PY'
           import importlib
-          mods = [
-              "gesh_core", "gesh_core.allocation_config", "gesh_core.ecg",
-              "gesh_core.kelly", "gesh_core.tax_harvester", "gesh_core.db",
-              "gesh_core.trading.contract", "gesh_core.trading.indicators",
-              "gesh_core.trading.levels", "gesh_core.trading.config",
-              "gesh_core.trading.state", "gesh_core.trading.risk_gate_core",
-          ]
-          for m in mods:
-              importlib.import_module(m)
+          from pathlib import Path
+
+          root = Path("src/gesh_core")
+          mods: set[str] = set()
+          for path in root.rglob("*.py"):
+              if "vendor" in path.parts:
+                  continue
+              rel = path.relative_to("src").with_suffix("").as_posix().replace("/", ".")
+              if rel.endswith(".__init__"):
+                  rel = rel[: -len(".__init__")]
+              if rel.endswith(".__main__"):
+                  continue
+              mods.add(rel)
+          for name in sorted(mods):
+              importlib.import_module(name)
           print("imported", len(mods), "modules OK")
           PY
 
       - name: Run tests
-        run: pytest -q
+        run: pytest -q --cov=gesh_core --cov-report=term-missing
