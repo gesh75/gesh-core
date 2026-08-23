@@ -372,3 +372,156 @@ def test_count_orders_includes_error_by_default():
     state.log_order(iid, None, "live", "rej-e1", "REJECTED", "X", "BUY", 1, 1.0)
     assert state.count_orders_today(mode="live") == 2  # SUBMITTED + ERROR; REJECTED excluded
     assert state.count_orders_today(approved_only=False) == 3  # superset still sees all
+
+
+def test_count_orders_today_rejects_naive_now():
+    state.init_trading_tables()
+    with pytest.raises(ValueError, match="timezone-aware"):
+        state.count_orders_today(now=datetime(2026, 8, 4, 12))
+
+
+# ─── paper book reconstruction (SELL sizing source of truth) ──────────────────
+
+
+def _paper_fill(
+    *,
+    client_order_id: str,
+    symbol: str,
+    action: str,
+    fill_qty: float,
+    fill_price: float,
+    status: str = "SIMULATED",
+    mode: str = "paper",
+    qty: float | None = None,
+) -> None:
+    """Persist one fill through the public order API (creates its own intent)."""
+    state.init_trading_tables()
+    iid = state.log_intent(
+        {"symbol": symbol, "action": action, "confidence": 1.0, "source": "paper-book"}
+    )
+    state.log_order(
+        iid,
+        None,
+        mode,
+        client_order_id,
+        status,
+        symbol,
+        action,
+        qty if qty is not None else fill_qty,
+        fill_price,
+        fill_price=fill_price,
+        fill_qty=fill_qty,
+    )
+
+
+def test_paper_open_positions_average_cost_from_simulated_buys():
+    # Two paper BUY fills must average: 10@100 + 10@120 = 20 @ 110.
+    _paper_fill(client_order_id="b1", symbol="NVDA", action="BUY", fill_qty=10, fill_price=100)
+    _paper_fill(client_order_id="b2", symbol="NVDA", action="BUY", fill_qty=10, fill_price=120)
+
+    book = state.paper_open_positions()
+    assert book["NVDA"]["qty"] == pytest.approx(20.0)
+    assert book["NVDA"]["cost_basis"] == pytest.approx(2200.0)
+    assert book["NVDA"]["avg_cost"] == pytest.approx(110.0)
+
+
+def test_paper_open_positions_sell_reduces_at_average_cost():
+    # SELL must reduce qty/cost at the running average, not at the sell fill price.
+    # 20 @ 110, sell 5 @ 200 → still 15 @ 110 (cost_basis 1650). Using the sell
+    # price here would inflate remaining cost and undersize every later close.
+    _paper_fill(client_order_id="b1", symbol="NVDA", action="BUY", fill_qty=10, fill_price=100)
+    _paper_fill(client_order_id="b2", symbol="NVDA", action="BUY", fill_qty=10, fill_price=120)
+    _paper_fill(client_order_id="s1", symbol="NVDA", action="SELL", fill_qty=5, fill_price=200)
+
+    book = state.paper_open_positions()
+    assert book["NVDA"]["qty"] == pytest.approx(15.0)
+    assert book["NVDA"]["cost_basis"] == pytest.approx(1650.0)
+    assert book["NVDA"]["avg_cost"] == pytest.approx(110.0)
+
+
+def test_paper_open_positions_ignores_audit_and_live_rows():
+    # Only mode=paper + status=SIMULATED fills size the book. Audit / live rows
+    # were the "0 closed trades / phantom position" failure: SELLs sized against
+    # Robinhood holdings (empty in paper) collapsed qty to 0.
+    _paper_fill(client_order_id="real", symbol="NVDA", action="BUY", fill_qty=10, fill_price=100)
+    _paper_fill(
+        client_order_id="rej",
+        symbol="NVDA",
+        action="BUY",
+        fill_qty=99,
+        fill_price=1,
+        status="REJECTED",
+    )
+    _paper_fill(
+        client_order_id="skip",
+        symbol="NVDA",
+        action="BUY",
+        fill_qty=99,
+        fill_price=1,
+        status="SKIPPED",
+    )
+    _paper_fill(
+        client_order_id="err",
+        symbol="NVDA",
+        action="BUY",
+        fill_qty=99,
+        fill_price=1,
+        status="ERROR",
+    )
+    _paper_fill(
+        client_order_id="live",
+        symbol="NVDA",
+        action="BUY",
+        fill_qty=99,
+        fill_price=1,
+        mode="live",
+    )
+    _paper_fill(client_order_id="aapl", symbol="AAPL", action="BUY", fill_qty=3, fill_price=50)
+
+    book = state.paper_open_positions()
+    assert set(book) == {"NVDA", "AAPL"}
+    assert book["NVDA"]["qty"] == pytest.approx(10.0)
+    assert book["AAPL"]["qty"] == pytest.approx(3.0)
+
+
+def test_paper_open_positions_oversell_and_zero_qty_leave_no_residual():
+    _paper_fill(client_order_id="b1", symbol="NVDA", action="BUY", fill_qty=10, fill_price=100)
+    _paper_fill(client_order_id="s-over", symbol="NVDA", action="SELL", fill_qty=15, fill_price=90)
+    _paper_fill(client_order_id="zero", symbol="AMD", action="BUY", fill_qty=0, fill_price=50)
+    state.init_trading_tables()
+    iid = state.log_intent({"symbol": "ORCL", "action": "BUY", "confidence": 1.0, "source": "m"})
+    # Missing fill_price / fill_qty must not invent a position.
+    state.log_order(iid, None, "paper", "no-fill", "SIMULATED", "ORCL", "BUY", 4, 80.0)
+
+    assert state.paper_open_positions() == {}
+
+
+def test_paper_open_positions_reopens_after_full_close():
+    _paper_fill(client_order_id="b1", symbol="NVDA", action="BUY", fill_qty=10, fill_price=100)
+    _paper_fill(client_order_id="s1", symbol="NVDA", action="SELL", fill_qty=10, fill_price=110)
+    _paper_fill(client_order_id="b2", symbol="NVDA", action="BUY", fill_qty=4, fill_price=80)
+
+    book = state.paper_open_positions()
+    assert book["NVDA"]["qty"] == pytest.approx(4.0)
+    assert book["NVDA"]["avg_cost"] == pytest.approx(80.0)
+
+
+# ─── paper stops (EOD sweep reads these, not the holdings snapshot) ───────────
+
+
+def test_paper_stops_latest_active_wins_and_deactivate_is_per_symbol():
+    state.init_trading_tables()
+    first = state.record_stop("NVDA", entry_price=100.0, stop_price=95.0, take_profit_price=112.0)
+    second = state.record_stop("NVDA", entry_price=102.0, stop_price=90.0, take_profit_price=120.0)
+    aapl = state.record_stop("AAPL", entry_price=50.0, stop_price=47.0)
+    assert first and second and aapl
+
+    active = state.active_stops()
+    assert active["NVDA"]["stop_price"] == pytest.approx(90.0)
+    assert active["NVDA"]["take_profit_price"] == pytest.approx(120.0)
+    assert active["AAPL"]["stop_price"] == pytest.approx(47.0)
+
+    state.deactivate_stops("NVDA")
+    remaining = state.active_stops()
+    assert "NVDA" not in remaining
+    assert remaining["AAPL"]["stop_price"] == pytest.approx(47.0)
