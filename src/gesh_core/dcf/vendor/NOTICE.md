@@ -15,7 +15,8 @@ a deployment artifact, and reading from it would break any process that is not
 Georgi's login shell.
 
 Upstream is unmodified. Re-sync by re-copying; do not edit these files in place —
-put GESH-specific logic in `trading/kelly_tornado.py` / `trading/dcf_fair_value.py`.
+put GESH-specific logic in `gesh_core.dcf.fair_value` / `gesh_core.dcf.sensitivity`
+(consumer shims may re-export those as `trading.dcf_*`).
 
 Known upstream quirks (do not "fix" here, work around in callers):
 - `SensitivityAnalyzer.tornado_analysis` divides by `self.base_output`; a zero base

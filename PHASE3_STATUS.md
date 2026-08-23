@@ -1,5 +1,9 @@
 # Phase 3 — gesh-core Extraction Status
 
+> Historical 2026-06 extraction log. Current inventory, DCF, and developer
+> pitfalls live in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
+> [docs/DCF.md](docs/DCF.md). Package version on `main` is **0.8.1**.
+
 De-duplicate the engine (`gesh-project-trading`) and product (`gesh-project`)
 repos by moving shared modules into one installable `gesh-core` package. Each
 consumer keeps a thin transparent shim where the module used to live, so import
