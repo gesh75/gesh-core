@@ -30,7 +30,7 @@ import argparse
 import json
 from typing import Any
 
-from gesh_core.dcf.inputs import fetch_dcf_inputs
+from gesh_core.dcf.inputs import DCFInputs, fetch_dcf_inputs
 from gesh_core.dcf.vendor.dcf_model import DCFModel as _VendoredDCFModel
 
 # Stated assumptions — overridable from the CLI, never silent.
@@ -212,9 +212,18 @@ def compute_fair_value(
     market_premium: float = DEFAULT_MARKET_PREMIUM,
     cost_of_debt: float = DEFAULT_COST_OF_DEBT,
     debt_to_equity: float = DEFAULT_DEBT_TO_EQUITY,
+    *,
+    data: DCFInputs | None = None,
+    profile: tuple[float, bool, str | None] | None = None,
 ) -> dict[str, Any]:
-    """Build a DCF from fetched statements. Returns an error dict if inputs are short."""
-    data = fetch_dcf_inputs(symbol)
+    """Build a DCF from fetched statements. Returns an error dict if inputs are short.
+
+    ``data`` / ``profile`` let a caller that already fetched statements (sensitivity)
+    reuse them. Re-fetching can hit a Yahoo 401/crumb miss and then either crash
+    downstream or value a different fiscal series than the headline number.
+    """
+    if data is None:
+        data = fetch_dcf_inputs(symbol)
     if not data.available:
         return {
             "symbol": symbol,
@@ -234,7 +243,7 @@ def compute_fair_value(
             "fetched": True,
         }
 
-    raw_beta, beta_fetched, sector = _fetch_profile(symbol)
+    raw_beta, beta_fetched, sector = profile if profile is not None else _fetch_profile(symbol)
     if sector in _EXCLUDED_SECTORS:
         return {
             "symbol": symbol,

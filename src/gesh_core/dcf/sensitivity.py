@@ -53,9 +53,12 @@ def _base_assumptions(data: DCFInputs) -> dict[str, Any]:
     review; latest-year is the scenario now, not the headline.
     """
     base_revenue = data.revenue[-1]
+    # Same guard compute_fair_value uses: a zero latest year must not crash the
+    # tornado after a successful headline DCF (which defaults that margin to 20%).
+    last_margin = data.ebitda[-1] / base_revenue if base_revenue else 0.20
     return {
         "growth": _growth_path(data.revenue, DEFAULT_TERMINAL_GROWTH, PROJECTION_YEARS),
-        "margins": [data.ebitda[-1] / base_revenue] * PROJECTION_YEARS,
+        "margins": [last_margin] * PROJECTION_YEARS,
         "capex_pct": _avg_ratio(data.capex, data.revenue),
         "nwc_pct": _avg_ratio(data.nwc, data.revenue),
     }
@@ -63,12 +66,21 @@ def _base_assumptions(data: DCFInputs) -> dict[str, Any]:
 
 def run_sensitivity(symbol: str) -> dict[str, Any]:
     """Tornado + bear-composite around the base DCF. Fetches once; error dict on refusal."""
-    base_result = compute_fair_value(symbol)
+    # One statement pull + one profile pull, then every scenario re-values that
+    # same snapshot. A second Yahoo call here used to crash on empty revenue
+    # (`data.revenue[-1]`) after a successful headline DCF, or silently tornado
+    # a different fiscal series than the published base (the failure
+    # value_with_assumptions was extracted to prevent).
+    data = fetch_dcf_inputs(symbol)
+    if not data.available:
+        base_result = compute_fair_value(symbol, data=data)
+        return {"symbol": symbol, "error": base_result.get("error") or "inputs unavailable"}
+    profile = _fetch_profile(symbol)
+    base_result = compute_fair_value(symbol, data=data, profile=profile)
     if base_result.get("error"):
         return {"symbol": symbol, "error": base_result["error"]}
 
-    data = fetch_dcf_inputs(symbol)
-    raw_beta, beta_fetched, _sector = _fetch_profile(symbol)
+    raw_beta, beta_fetched, _sector = profile
     beta = blume_beta(raw_beta) if beta_fetched else raw_beta
     base = _base_assumptions(data)
     base_fv = base_result["fair_value_per_share"]
