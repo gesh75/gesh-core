@@ -17,6 +17,7 @@ from gesh_core import kelly
 from gesh_core.kelly import (
     MAX_POSITION_PCT,
     MIN_HISTORY_DAYS,
+    _classify_action,
     _continuous_kelly,
     _discrete_kelly,
     _max_drawdown,
@@ -86,6 +87,21 @@ def test_volatility_tiers(ann_target, expected):
 
 def test_max_drawdown_is_nonpositive():
     assert _max_drawdown(NEGATIVE_DRIFT) <= 0.0
+
+
+@pytest.mark.parametrize(
+    ("current_pct", "final_pct", "expected"),
+    [
+        (0.10, 0.0, ("AVOID", "red")),
+        (0.131, 0.10, ("TRIM", "yellow")),   # strictly above 1.3×
+        (0.13, 0.10, ("HOLD", "cyan")),      # 1.3× inclusive stays HOLD
+        (0.059, 0.10, ("ADD", "green")),     # strictly below 0.6×
+        (0.06, 0.10, ("HOLD", "cyan")),      # 0.6× inclusive stays HOLD
+        (0.10, 0.10, ("HOLD", "cyan")),
+    ],
+)
+def test_classify_action_bands(current_pct, final_pct, expected):
+    assert _classify_action(current_pct, final_pct) == expected
 
 
 # ─── kelly_size_holding with injected returns ─────────────────────────────────

@@ -99,6 +99,30 @@ def test_validate_non_ascii_symbol():
     assert any("symbol invalid" in p for p in problems)
 
 
+def test_validate_sell_requires_target_position_pct():
+    problems = TradeIntent(symbol="NVDA", action="SELL", confidence=1.0, source="m").validate()
+    assert any("require target_position_pct" in p for p in problems)
+
+
+def test_validate_empty_symbol():
+    problems = TradeIntent(symbol="", action="HOLD", confidence=1.0, source="m").validate()
+    assert any("symbol invalid" in p for p in problems)
+
+
+def test_from_consensus_unknown_or_empty_verdict_is_hold():
+    base = {
+        "symbol": "NVDA",
+        "raw_score": 0.6,
+        "confidence": 80,
+        "active_nodes": 8,
+        "total_nodes": 11,
+    }
+    for verdict in ("", None, "MAYBE", "weak buy"):
+        intent = from_consensus({**base, "verdict": verdict})
+        assert intent.action == "HOLD"
+        assert intent.target_position_pct is None
+
+
 # ─── from_consensus() ─────────────────────────────────────────────────────────
 
 
