@@ -104,6 +104,16 @@ def test_classify_action_bands(current_pct, final_pct, expected):
     assert _classify_action(current_pct, final_pct) == expected
 
 
+def test_size_holding_routes_action_through_classify_action(monkeypatch):
+    """kelly_size_holding must not keep a forked copy of the band logic."""
+    monkeypatch.setattr(kelly, "_classify_action", lambda current, final: ("TRIM", "yellow"))
+    res = kelly_size_holding(
+        "X", 1_000, 100_000, avg_cost=10, current_price=12, returns=POSITIVE_DRIFT
+    )
+    assert res["action"] == "TRIM"
+    assert res["action_color"] == "yellow"
+
+
 # ─── kelly_size_holding with injected returns ─────────────────────────────────
 
 def test_injected_returns_skip_fetch():

@@ -82,8 +82,16 @@ def test_live_missing_equity_summary_treats_cash_and_equity_as_zero():
 def test_paper_uses_simulated_cash_when_snapshot_is_empty():
     cfg = RiskConfig(paper_mode=True, paper_cash_usd=100_000.0)
     intent = manual("NVDA", "BUY", target_position_pct=0.10)
-    # Missing equity → 0, so paper cash is not reduced; the real book is ignored.
+    # No book at all: equity is 0 so spend is 0; paper cash is still the source.
     assert _post_trade_cash_estimate({}, intent, cfg) == pytest.approx(100_000.0)
+
+
+def test_paper_ignores_missing_live_cash_when_equity_present():
+    cfg = RiskConfig(paper_mode=True, paper_cash_usd=100_000.0)
+    intent = manual("NVDA", "BUY", target_position_pct=0.10)
+    snapshot = {"equity_summary": {"portfolio_equity": 50_000.0}}
+    # 100_000 - 0.10*50_000 = 95_000. Absent live cash must not starve paper.
+    assert _post_trade_cash_estimate(snapshot, intent, cfg) == pytest.approx(95_000.0)
 
 
 def test_buy_without_target_does_not_spend_cash():
