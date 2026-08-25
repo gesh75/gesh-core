@@ -325,9 +325,11 @@ def validate_action(
 ) -> ActionCheck:
     """Gate check before executing or recommending a trade.
 
-    Financial limits (size, open positions, cash floor, scanner price) always
-    run. Live-execution permission (``auto_trade``) is a separate last check
-    so paper callers can skip only that permission without skipping caps.
+    Size, open-position, cash-floor, and scanner-price limits always run
+    (never gated on ``auto_trade``). Size cap and scanner price are BUY/ADD
+    only — a position that appreciated past ``max_stock_per_trade`` or left
+    the scanner band must still be closeable. Live-execution permission is a
+    separate last check so paper callers can skip only that permission.
 
     Returns ``ActionCheck`` (unpackable as ``ok, reason = ...``).
     """
@@ -337,6 +339,7 @@ def validate_action(
         return ActionCheck(
             False, "Invalid action — expected BUY, ADD, TRIM, or SELL", "INVALID_ACTION"
         )
+    opening = action in ("BUY", "ADD")
 
     # Non-finite sizes fail closed: ``NaN > cap`` is False in IEEE-754, which
     # would otherwise let a missing/poisoned size through the dollar cap.
@@ -352,7 +355,7 @@ def validate_action(
     # emergency exits when the broker snapshot is dirty.
     if (
         current_cash is not None
-        and action in ("BUY", "ADD")
+        and opening
         and (
             not isinstance(current_cash, (int, float))
             or isinstance(current_cash, bool)
@@ -364,24 +367,27 @@ def validate_action(
         )
 
     # Size / position / cash / price first — never gated on auto_trade.
-    if is_options:
-        cap = cfg["max_options_per_trade"]
-        cap_label = "options"
-    else:
-        cap = cfg["max_stock_per_trade"]
-        cap_label = "stock"
+    # Max $ per trade is entry sizing only: "Reduce position" is meaningless
+    # on a SELL of a winner that outgrew the cap.
+    if opening:
+        if is_options:
+            cap = cfg["max_options_per_trade"]
+            cap_label = "options"
+        else:
+            cap = cfg["max_stock_per_trade"]
+            cap_label = "stock"
 
-    if trade_usd > cap:
-        return ActionCheck(
-            False,
-            (
-                f"Trade size ${trade_usd:,.0f} exceeds max {cap_label} per trade "
-                f"(${cap:,.0f}). Reduce position."
-            ),
-            "SIZE_CAP",
-        )
+        if trade_usd > cap:
+            return ActionCheck(
+                False,
+                (
+                    f"Trade size ${trade_usd:,.0f} exceeds max {cap_label} per trade "
+                    f"(${cap:,.0f}). Reduce position."
+                ),
+                "SIZE_CAP",
+            )
 
-    if action in ("BUY", "ADD") and open_positions >= cfg["max_open_positions"]:
+    if opening and open_positions >= cfg["max_open_positions"]:
         return ActionCheck(
             False,
             (
@@ -391,7 +397,7 @@ def validate_action(
             "POSITION_CAP",
         )
 
-    if current_cash is not None and action in ("BUY", "ADD"):
+    if current_cash is not None and opening:
         remaining = current_cash - trade_usd
         if remaining < cfg["min_cash_buffer"]:
             return ActionCheck(
@@ -403,7 +409,9 @@ def validate_action(
                 "CASH_FLOOR",
             )
 
-    if current_price is not None and cfg["scanner_timeframe"] != "daily":
+    # Scanner price is entry-universe only. A name that broke out above the
+    # ceiling or collapsed below the floor must still be closeable.
+    if opening and current_price is not None and cfg["scanner_timeframe"] != "daily":
         if current_price < cfg["scanner_price_min"]:
             return ActionCheck(
                 False,
