@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -20,7 +22,11 @@ from gesh_core.ledger.hashes import (
     market_quote_snapshot_hash,
     portfolio_snapshot_hash,
 )
-from gesh_core.ledger.versions import OWNER_TENANT_ID, version_bundle
+from gesh_core.ledger.versions import (
+    OWNER_TENANT_ID,
+    RECOMMENDATION_ID_SCHEMA_VERSION,
+    version_bundle,
+)
 
 
 def test_dict_order_independent():
@@ -83,6 +89,42 @@ def test_secret_field_rejected():
         canonicalize({"password": "x"})
 
 
+def test_canonicalize_secret_field_case_insensitive_raises():
+    with pytest.raises(CanonicalizationError, match="secret field"):
+        canonicalize({"API_KEY": "sk-test"})
+    with pytest.raises(CanonicalizationError, match="secret field"):
+        canonicalize({"Token": "x"})
+
+
+def test_canonicalize_nested_secret_field_raises():
+    with pytest.raises(CanonicalizationError, match="secret field"):
+        canonicalize({"risk_state": {"access_token": "nested-secret"}})
+
+
+def test_canonicalize_allow_secrets_permits_api_key():
+    payload = {"api_key": "sk-test"}
+    assert canonicalize(payload, _allow_secrets=True) == payload
+    assert "sk-test" in canonical_json(payload, allow_secrets=True)
+
+
+def test_canonicalize_non_utc_datetime_converts_to_z():
+    eastern = datetime(2026, 1, 15, 7, 0, 0, tzinfo=ZoneInfo("America/New_York"))
+    assert canonicalize(eastern) == "2026-01-15T12:00:00Z"
+
+
+@dataclass
+class _Holding:
+    symbol: str
+    qty: int
+
+
+def test_canonicalize_dataclass_produces_stable_hash():
+    holding = _Holding(symbol="AAPL", qty=1)
+    as_dict = {"symbol": "AAPL", "qty": 1}
+    assert canonicalize(holding) == canonicalize(as_dict)
+    assert content_hash(holding) == content_hash(as_dict)
+
+
 def test_input_not_mutated():
     original = {"z": 1, "a": [2, 3]}
     snapshot = dict(original)
@@ -109,6 +151,12 @@ def test_version_bundle_sensitive_to_engine_change():
     assert content_hash(b) != content_hash(altered)
 
 
+def test_version_bundle_excludes_recommendation_id_schema():
+    bundle = version_bundle()
+    assert "recommendation_id_schema" not in bundle
+    assert RECOMMENDATION_ID_SCHEMA_VERSION == 2
+
+
 def test_portfolio_hash_deterministic_and_sorted_holdings():
     h1 = portfolio_snapshot_hash(
         tenant_id="owner",
@@ -126,6 +174,64 @@ def test_portfolio_hash_deterministic_and_sorted_holdings():
     )
     assert h1 == h2
     assert h1.startswith("ps_")
+
+
+def test_portfolio_hash_shares_alias_matches_quantity():
+    kwargs = dict(
+        tenant_id="owner",
+        cash=0.0,
+        buying_power=0.0,
+        total_equity=10.0,
+    )
+    via_shares = portfolio_snapshot_hash(
+        holdings=[{"symbol": "AAPL", "shares": 3}], **kwargs
+    )
+    via_qty = portfolio_snapshot_hash(holdings=[{"symbol": "AAPL", "quantity": 3}], **kwargs)
+    assert via_shares == via_qty
+
+
+def test_portfolio_hash_average_cost_alias_matches_avg_cost():
+    kwargs = dict(
+        tenant_id="owner",
+        cash=0.0,
+        buying_power=0.0,
+        total_equity=10.0,
+    )
+    via_alias = portfolio_snapshot_hash(
+        holdings=[{"symbol": "AAPL", "quantity": 1, "average_cost": 12.5}], **kwargs
+    )
+    via_canonical = portfolio_snapshot_hash(
+        holdings=[{"symbol": "AAPL", "quantity": 1, "avg_cost": 12.5}], **kwargs
+    )
+    assert via_alias == via_canonical
+
+
+def test_portfolio_hash_risk_state_changes_digest():
+    kwargs = dict(
+        tenant_id="owner",
+        holdings=[{"symbol": "AAPL", "quantity": 1}],
+        cash=0.0,
+        buying_power=0.0,
+        total_equity=10.0,
+    )
+    plain = portfolio_snapshot_hash(**kwargs)
+    gated = portfolio_snapshot_hash(**kwargs, risk_state={"portfolio_gate": "COOLING"})
+    assert plain != gated
+
+
+def test_context_hash_extra_versions_overrides_bundle():
+    kwargs = dict(
+        tenant_id="owner",
+        source="daily-chain",
+        portfolio_snapshot_hash_value="ps_abc",
+        market_quote_snapshot_hashes=["mqs_1"],
+    )
+    base = analysis_context_hash(**kwargs)
+    overridden = analysis_context_hash(**kwargs, extra_versions={"kelly_engine": "9.9.9"})
+    assert base != overridden
+    assert overridden == analysis_context_hash(
+        **kwargs, extra_versions={"kelly_engine": "9.9.9"}
+    )
 
 
 def test_portfolio_hash_tenant_sensitive():

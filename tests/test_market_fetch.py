@@ -68,6 +68,15 @@ def test_download_all_fail_returns_none(monkeypatch):
     assert mf.yf_download_with_retry("ZZZZ", period="2y") is None
 
 
+def test_yf_download_fallback_exception_returns_none(monkeypatch):
+    monkeypatch.setattr(mf.yf, "download", lambda *a, **k: pd.DataFrame())
+
+    def boom(*_a, **_k):
+        raise RuntimeError("rh down")
+
+    assert mf.yf_download_with_retry("NVDA", period="2y", fallback=boom) is None
+
+
 def test_download_does_not_import_untrusted_fallback(monkeypatch, tmp_path):
     monkeypatch.setattr(mf.yf, "download", lambda *a, **k: pd.DataFrame())
     marker = tmp_path / "imported"
@@ -78,6 +87,21 @@ def test_download_does_not_import_untrusted_fallback(monkeypatch, tmp_path):
 
     assert mf.yf_download_with_retry("ZZZZ", period="2y") is None
     assert not marker.exists()
+
+
+def test_fetch_ohlcv_period_days_over_260_requests_two_year(monkeypatch):
+    seen: dict[str, object] = {}
+
+    def capture(_symbol, **kwargs):
+        seen.clear()
+        seen.update(kwargs)
+        return _df(300)
+
+    monkeypatch.setattr(mf, "yf_download_with_retry", capture)
+    assert mf.fetch_ohlcv("NVDA", period_days=300) is not None
+    assert seen["period"] == "2y"
+    assert mf.fetch_ohlcv("NVDA", period_days=252) is not None
+    assert seen["period"] == "1y"
 
 
 def test_fetch_ohlcv_returns_arrays(monkeypatch):

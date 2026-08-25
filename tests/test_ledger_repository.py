@@ -628,6 +628,82 @@ def test_valid_same_tenant_supersedes_succeeds(db_path: Path):
     assert b["supersedes_recommendation_id"] == "rec_a"
 
 
+def test_list_recommendations_before_decision_at_filters_older(db_path: Path):
+    ctx = analysis_context_hash(
+        tenant_id=OWNER_TENANT_ID,
+        source="manual",
+        portfolio_snapshot_hash_value="ps_cursor",
+    )
+    insert_recommendation(
+        recommendation_id="rec_old",
+        tenant_id=OWNER_TENANT_ID,
+        symbol="AAPL",
+        context_hash=ctx,
+        decision_at="2026-07-20T10:00:00Z",
+        source="manual",
+        action="HOLD",
+        db_path=db_path,
+    )
+    insert_recommendation(
+        recommendation_id="rec_new",
+        tenant_id=OWNER_TENANT_ID,
+        symbol="AAPL",
+        context_hash=ctx,
+        decision_at="2026-07-22T10:00:00Z",
+        source="manual",
+        action="BUY",
+        db_path=db_path,
+    )
+    listed = list_recommendations(
+        tenant_id=OWNER_TENANT_ID,
+        before_decision_at="2026-07-21T00:00:00Z",
+        db_path=db_path,
+    )
+    assert [row["recommendation_id"] for row in listed] == ["rec_old"]
+
+
+def test_list_recommendations_limit_zero_clamped_to_one(db_path: Path):
+    ctx = analysis_context_hash(
+        tenant_id=OWNER_TENANT_ID,
+        source="manual",
+        portfolio_snapshot_hash_value="ps_limit",
+    )
+    for idx, when in enumerate(("2026-07-20T10:00:00Z", "2026-07-21T10:00:00Z")):
+        insert_recommendation(
+            recommendation_id=f"rec_limit_{idx}",
+            tenant_id=OWNER_TENANT_ID,
+            symbol="MSFT",
+            context_hash=ctx,
+            decision_at=when,
+            source="manual",
+            action="HOLD",
+            db_path=db_path,
+        )
+    listed = list_recommendations(tenant_id=OWNER_TENANT_ID, limit=0, db_path=db_path)
+    assert len(listed) == 1
+    assert listed[0]["recommendation_id"] == "rec_limit_1"
+
+
+def test_insert_recommendation_supersedes_nonexistent_raises(db_path: Path):
+    ctx = analysis_context_hash(
+        tenant_id=OWNER_TENANT_ID,
+        source="manual",
+        portfolio_snapshot_hash_value="ps_missing",
+    )
+    with pytest.raises(ValueError, match="does not exist"):
+        insert_recommendation(
+            recommendation_id="rec_orphan_supersede",
+            tenant_id=OWNER_TENANT_ID,
+            symbol="AAPL",
+            context_hash=ctx,
+            decision_at="2026-07-21T10:00:00Z",
+            source="manual",
+            action="BUY",
+            supersedes_recommendation_id="rec_missing",
+            db_path=db_path,
+        )
+
+
 def test_tenant_required(db_path: Path):
     with pytest.raises(ValueError, match="tenant_id"):
         insert_or_get_portfolio_snapshot(
