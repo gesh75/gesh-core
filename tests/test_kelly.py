@@ -6,6 +6,7 @@ on. Mirrors the product repo's tests/test_kelly.py so neither consumer regresses
 """
 from __future__ import annotations
 
+import math
 import os
 import subprocess
 import sys
@@ -130,6 +131,41 @@ def test_insufficient_history_returns_error():
                              returns=np.array([0.01] * (MIN_HISTORY_DAYS - 5), dtype=float))
     assert res["recommended_pct"] is None
     assert "Insufficient" in res["error"]
+
+
+def test_inf_return_day_does_not_nan_size():
+    """A single ±inf day (0-price print → pct_change) must not NaN the size.
+
+    dropna() keeps infinities; μ/σ² then become NaN and recommended_usd /
+    optimal_pct leak into the dashboard JSON and any consumer that sizes
+    an order from them.
+    """
+    returns = POSITIVE_DRIFT.copy()
+    returns[10] = np.inf
+    returns[20] = -np.inf
+    res = kelly_size_holding("X", 1_000, 100_000, 10, 12, returns=returns)
+    assert "error" not in res
+    assert math.isfinite(res["optimal_pct"])
+    assert math.isfinite(res["recommended_usd"])
+    assert res["optimal_pct"] >= 0.0
+
+
+def test_all_nonfinite_returns_are_insufficient():
+    res = kelly_size_holding(
+        "X", 1_000, 100_000, 10, 12,
+        returns=np.array([np.inf, -np.inf, np.nan] * 20, dtype=float),
+    )
+    assert res["recommended_pct"] is None
+    assert "Insufficient" in res["error"]
+
+
+def test_ai_eval_junk_pct_diff_does_not_crash():
+    res = kelly_size_holding(
+        "X", 1_000, 100_000, 10, 12, returns=POSITIVE_DRIFT,
+        ai_eval={"verdict": "HOLD", "pct_diff": "n/a"},
+    )
+    assert "error" not in res
+    assert math.isfinite(res["optimal_pct"])
 
 
 # ─── run_kelly_analysis (portfolio) ───────────────────────────────────────────
@@ -266,6 +302,55 @@ def test_positive_autocorrelation_shrinks_size(monkeypatch):
     iid_size = kelly_size_holding("X", 1000, 100_000, 10, 12, returns=shuffled)["optimal_pct"]
 
     assert ac_size < iid_size
+
+
+def test_run_kelly_analysis_null_holding_fields_do_not_crash(monkeypatch):
+    """Broker payloads often have equity/price = null. float(None) used to
+    abort the entire book — no Kelly row for any name."""
+    monkeypatch.setattr(kelly, "_fetch_returns", lambda symbol, days=90: POSITIVE_DRIFT)
+    out = run_kelly_analysis(
+        [
+            {"symbol": "AAA", "equity": None, "average_buy_price": None, "current_price": None},
+            {"symbol": "BBB", "equity": 2000, "average_buy_price": 20, "current_price": float("nan")},
+        ],
+        total_portfolio=100_000,
+    )
+    assert len(out["holdings"]) == 2
+    assert math.isfinite(out["total_optimal_allocated_pct"])
+    assert math.isfinite(out["portfolio_kelly_score"])
+    assert not any(
+        isinstance(h.get("optimal_pct"), float) and math.isnan(h["optimal_pct"])
+        for h in out["holdings"]
+    )
+
+
+def test_fetch_returns_drops_zero_close_before_pct_change(monkeypatch):
+    """Yahoo 0-prints: 10 → 0 → 5 must not inject -100% or +inf.
+
+    Filtering only after pct_change() drops the inf rebound but keeps the
+    10→0 day as -1.0, which explodes σ and can flip a name to AVOID.
+    """
+    import pandas as pd
+
+    closes = np.linspace(100, 120, 45)
+    closes[10] = 0.0
+    idx = pd.bdate_range("2026-01-05", periods=45)
+    frame = pd.DataFrame({"Close": closes}, index=idx)
+
+    class _FakeTicker:
+        def __init__(self, symbol):
+            pass
+        def history(self, **kwargs):
+            return frame
+
+    monkeypatch.setattr(kelly.yf, "Ticker", _FakeTicker)
+    out = kelly._fetch_returns("NVDA")
+    assert out is not None
+    vals = out.to_numpy(dtype=float)
+    assert np.isfinite(vals).all()
+    assert (vals > -1.0).all()
+    assert idx[10].normalize() not in out.index
+    assert idx[9].normalize() in out.index or idx[11].normalize() in out.index
 
 
 def test_run_kelly_analysis_all_error_rows_score_is_zero(monkeypatch):
