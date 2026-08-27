@@ -42,12 +42,12 @@ def test_log_and_get_intent_on_caller_connection():
 
 
 def test_insert_intent_fails_closed_when_lastrowid_missing():
-    state.init_trading_tables()
-
     class _NoRowId:
         lastrowid = None
 
-    with state._conn() as con:
-        con.execute = lambda *_a, **_k: _NoRowId()  # type: ignore[method-assign]
-        with pytest.raises(sqlite3.DatabaseError, match="no row ID"):
-            state._insert_intent(con, _INTENT)
+    class _Conn:
+        def execute(self, *_a, **_k):
+            return _NoRowId()
+
+    with pytest.raises(sqlite3.DatabaseError, match="no row ID"):
+        state._insert_intent(_Conn(), _INTENT)
