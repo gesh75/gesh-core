@@ -147,7 +147,10 @@ def _growth_path(revenue: tuple[float, ...], terminal: float, years: int) -> lis
     """Decay historical revenue CAGR toward terminal growth. An ASSUMPTION, not data."""
     if years < 2:
         return [terminal] * max(years, 0)
-    if len(revenue) < 2 or revenue[0] <= 0:
+    # Last period must be positive too: a negative/zero endpoint makes
+    # `(last/first) ** (1/n)` complex in Python (3+ years, the DCF default)
+    # and the subsequent `max(min(cagr, 0.60), terminal)` raises TypeError.
+    if len(revenue) < 2 or revenue[0] <= 0 or revenue[-1] <= 0:
         return [terminal] * years
     cagr = (revenue[-1] / revenue[0]) ** (1 / (len(revenue) - 1)) - 1
     start = max(min(cagr, 0.60), terminal)  # cap the extrapolated start at 60%
@@ -254,8 +257,16 @@ def compute_fair_value(
             "fetched": True,
         }
     beta = blume_beta(raw_beta) if beta_fetched else DEFAULT_BETA
+    # Must refuse before `_growth_path`: a positive first year + non-positive
+    # last year is a TypeError (complex CAGR), not a named error dict.
+    if not data.revenue or any(r <= 0 for r in data.revenue):
+        return {
+            "symbol": symbol,
+            "error": "non-positive or missing revenue — percent-of-revenue DCF is undefined",
+            "fetched": True,
+        }
     growth = _growth_path(data.revenue, terminal_growth, PROJECTION_YEARS)
-    last_margin = data.ebitda[-1] / data.revenue[-1] if data.revenue[-1] else 0.20
+    last_margin = data.ebitda[-1] / data.revenue[-1]
     if last_margin < MIN_EBITDA_MARGIN:
         return {
             "symbol": symbol,
