@@ -83,4 +83,11 @@ jobs:
           PY
 
       - name: Run tests
-        run: pytest -q --cov=gesh_core --cov-report=term-missing
+        run: |
+          # Buildkite's github-actions importer defaults the runner ulimit to
+          # 1024. pytest + sqlite fixtures on 3.13/3.14 then fail with EMFILE
+          # ("too many open files") and coverage cannot open .coverage. GitHub-
+          # hosted runners already have a high limit; raising here is a no-op
+          # there and unblocks the Buildkite matrix.
+          ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
+          pytest -q --cov=gesh_core --cov-report=term-missing
