@@ -102,8 +102,9 @@ def test_tz_aware_index_is_stripped_and_normalized(monkeypatch):
 
 def test_duplicate_dates_keep_last_close(monkeypatch):
     rest = pd.date_range("2026-01-07", periods=35, freq="D")
-    idx = pd.DatetimeIndex([pd.Timestamp("2026-01-05"), pd.Timestamp("2026-01-06"),
-                            pd.Timestamp("2026-01-06")]) .append(rest)
+    idx = pd.DatetimeIndex(
+        [pd.Timestamp("2026-01-05"), pd.Timestamp("2026-01-06"), pd.Timestamp("2026-01-06")]
+    ).append(rest)
     # Two prints on Jan 6: keep="last" must retain the 20.0 close's return.
     closes = [10.0, 11.0, 20.0] + [20.0 + i * 0.1 for i in range(len(idx) - 3)]
     frame = pd.DataFrame({"Close": closes}, index=idx)

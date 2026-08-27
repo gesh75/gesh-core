@@ -16,7 +16,7 @@ class _Ticker:
         self.info = info
 
 
-def test_fetched_beta_in_open_unit_interval(monkeypatch):
+def test_fetched_beta_within_usable_range(monkeypatch):
     monkeypatch.setattr(yf, "Ticker", lambda _s: _Ticker({"beta": 1.4, "sector": "Technology"}))
     beta, fetched, sector = _fetch_profile("AMD")
     assert fetched is True

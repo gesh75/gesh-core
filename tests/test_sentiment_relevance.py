@@ -78,8 +78,9 @@ def test_fetch_json_api_rate_limit_and_errors(monkeypatch):
 
     monkeypatch.setattr(sc.requests, "get", fake_get)
     assert sc._fetch_json_api("NVDA") == []
-    # 429 breaks the feed loop for that sub; remaining subs still attempt once.
-    assert calls["n"] >= 1
+    # 429 breaks the inner feed loop for that sub; each remaining sub still
+    # tries both feeds and swallows the timeout.
+    assert calls["n"] == 1 + 2 * (len(sc.SUBREDDITS) - 1)
 
 
 def test_fetch_json_api_keeps_relevant_posts(monkeypatch):
