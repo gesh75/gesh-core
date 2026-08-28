@@ -28,7 +28,7 @@ from .contract import TradeIntent
 CANDIDATE_MARKER = "premarket_candidates"
 
 
-def entry_floor_blocks(action: str, raw_score: float, min_entry_score: float) -> bool:
+def entry_floor_blocks(action: str, raw_score: float | None, min_entry_score: float) -> bool:
     """True when a NEW long entry must be dropped (P2 entry-conviction floor).
 
     Consensus `confidence` is DATA COVERAGE (nodes-voted fraction), not signal
@@ -38,12 +38,18 @@ def entry_floor_blocks(action: str, raw_score: float, min_entry_score: float) ->
 
     Non-finite scores fail closed: ``NaN < floor`` is False in IEEE-754, which
     would otherwise let a missing consensus number through as a new long.
+    JSON-null / unparseable scores must not TypeError the rest of the book.
     """
     if action != "BUY":
         return False
-    if not (math.isfinite(raw_score) and math.isfinite(min_entry_score)):
+    try:
+        score = float(raw_score)  # type: ignore[arg-type]
+        floor = float(min_entry_score)
+    except (TypeError, ValueError):
         return True
-    return raw_score < min_entry_score
+    if not math.isfinite(score) or not math.isfinite(floor):
+        return True
+    return score < floor
 
 
 def candidates_marker_json(symbols: Iterable[str], today_et: str) -> str:
