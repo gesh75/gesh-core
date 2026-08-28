@@ -27,6 +27,7 @@ from gesh_core.trading.autopilot_core import (
     ("BUY", 0.60, float("nan"), True),   # NaN floor never compares True — block
     ("BUY", 0.60, float("-inf"), True),  # 0.60 < -inf is False — must fail closed
     ("BUY", None, 0.35, True),           # JSON-null from the consensus row
+    ("BUY", "not-a-number", 0.35, True), # unparseable score — fail closed
     ("SELL", float("nan"), 0.35, False), # exits still never gated
 ])
 def test_entry_floor(action, raw, floor, blocked):

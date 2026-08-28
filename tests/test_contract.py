@@ -232,6 +232,31 @@ def test_from_consensus_null_or_nonfinite_scores_fail_closed(raw_score, confiden
     assert 0.0 <= intent.confidence <= 1.0
 
 
+def test_from_consensus_null_row_does_not_abort_sibling_sell():
+    """Callers map from_consensus across the book; one null must not raise."""
+    book = [
+        {
+            "symbol": "AMD",
+            "verdict": "INSUFFICIENT DATA",
+            "raw_score": None,
+            "confidence": None,
+            "active_nodes": 0,
+            "total_nodes": 11,
+        },
+        {
+            "symbol": "NVDA",
+            "verdict": "SELL",
+            "raw_score": -0.90,
+            "confidence": 80,
+            "active_nodes": 8,
+            "total_nodes": 11,
+        },
+    ]
+    intents = [from_consensus(row) for row in book]
+    assert [intent.action for intent in intents] == ["HOLD", "SELL"]
+    assert intents[1].target_position_pct == 0.0
+
+
 def test_from_consensus_null_raw_score_on_sell_still_closes():
     """The production failure: one null-score row must not abort a SELL."""
     intent = from_consensus(
