@@ -16,6 +16,7 @@ is live and accumulating the autonomy-gate sample.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Iterable
 
 from .contract import TradeIntent
@@ -24,7 +25,7 @@ from .contract import TradeIntent
 CANDIDATE_MARKER = "premarket_candidates"
 
 
-def entry_floor_blocks(action: str, raw_score: float, min_entry_score: float) -> bool:
+def entry_floor_blocks(action: str, raw_score: float | None, min_entry_score: float) -> bool:
     """True when a NEW long entry must be dropped (P2 entry-conviction floor).
 
     Consensus `confidence` is DATA COVERAGE (nodes-voted fraction), not signal
@@ -32,7 +33,25 @@ def entry_floor_blocks(action: str, raw_score: float, min_entry_score: float) ->
     gates BUYs on the consensus raw_score instead. SELL is a managed exit and
     is NEVER gated; HOLD never reaches execution.
     """
-    return action == "BUY" and raw_score < min_entry_score
+    # NaN/Inf comparisons are always false, which would fail OPEN and let a
+    # BUY with unknown conviction through — the exact hole this floor exists
+    # to close. Non-finite floor is equally unsafe (never blocks). Hosts pass
+    # consensus_row["raw_score"] here (TradeIntent does not carry it), so
+    # JSON-null must not TypeError the rest of the book.
+    if action != "BUY":
+        return False
+    # Narrow None before float(): mypy rejects float(None), and JSON-null is
+    # the production trigger (key present, value null — .get(..., 0) misses it).
+    if raw_score is None:
+        return True
+    try:
+        score = float(raw_score)
+        floor = float(min_entry_score)
+    except (TypeError, ValueError):
+        return True
+    if not math.isfinite(score) or not math.isfinite(floor):
+        return True
+    return score < floor
 
 
 def candidates_marker_json(symbols: Iterable[str], today_et: str) -> str:

@@ -21,6 +21,14 @@ from gesh_core.trading.autopilot_core import (
     ("BUY", 0.60, 0.35, False),   # strong → kept
     ("SELL", -0.90, 0.35, False), # managed exit — NEVER gated
     ("HOLD", 0.00, 0.35, False),  # never reaches execution anyway
+    ("BUY", float("nan"), 0.35, True),   # NaN < floor is False — must fail closed
+    ("BUY", float("inf"), 0.35, True),   # Inf is not a real conviction signal
+    ("BUY", float("-inf"), 0.35, True),
+    ("BUY", 0.60, float("nan"), True),   # NaN floor never compares True — block
+    ("BUY", 0.60, float("-inf"), True),  # 0.60 < -inf is False — must fail closed
+    ("BUY", None, 0.35, True),           # JSON-null from the consensus row
+    ("BUY", "not-a-number", 0.35, True), # unparseable score — fail closed
+    ("SELL", float("nan"), 0.35, False), # exits still never gated
 ])
 def test_entry_floor(action, raw, floor, blocked):
     assert entry_floor_blocks(action, raw, floor) is blocked
