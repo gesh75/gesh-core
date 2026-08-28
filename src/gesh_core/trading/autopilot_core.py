@@ -42,6 +42,10 @@ def entry_floor_blocks(action: str, raw_score: float | None, min_entry_score: fl
     """
     if action != "BUY":
         return False
+    # Narrow None before float(): mypy rejects float(None), and JSON-null is
+    # the production trigger (key present, value null — .get(..., 0) misses it).
+    if raw_score is None:
+        return True
     try:
         score = float(raw_score)  # type: ignore[arg-type]
         floor = float(min_entry_score)
