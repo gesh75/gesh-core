@@ -12,6 +12,7 @@ import math
 import os
 import re
 from datetime import UTC, datetime
+from typing import TypeGuard
 
 _log = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ EQUITY_MAX_STOP_PCT    = float(os.getenv("EQUITY_MAX_STOP_PCT", "0.15"))   # cap
 EQUITY_ATR_TARGET_MULT = float(os.getenv("EQUITY_ATR_TARGET_MULT", "5.0")) # target = entry ± TARGET_MULT × ATR
 
 
-def _usable_price(value: float | None) -> bool:
+def _usable_price(value: float | None) -> TypeGuard[float]:
     """True for a finite price that can be used as entry, ATR, or a stop level.
 
     ``not nan`` and ``nan <= 0`` are both False, so the older truthiness / ``<= 0``
