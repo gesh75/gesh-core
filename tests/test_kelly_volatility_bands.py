@@ -34,9 +34,14 @@ def test_volatility_score_bands(ann_vol_pct: float, expected: str):
 
 
 def test_run_kelly_analysis_applies_analyst_upside_and_ai_verdict(monkeypatch):
-    """Portfolio path must thread analyst_targets / ai_verdicts into per-name size."""
-    drift = (np.random.default_rng(0).normal(0.003, 0.01, 120)).astype(float)
-    monkeypatch.setattr(kelly, "_fetch_returns", lambda symbol, days=90: drift)
+    """Portfolio path must thread analyst_targets / ai_verdicts into per-name size.
+
+    The series is a modest 51/49 edge so half-Kelly stays under the 25% cap.
+    A high-edge draw hits the cap on every path and the size comparisons
+    become vacuous (base == boosted == penalized).
+    """
+    modest = np.array([0.005] * 51 + [-0.005] * 49, dtype=float)
+    monkeypatch.setattr(kelly, "_fetch_returns", lambda symbol, days=90: modest)
 
     holdings = [{"symbol": "AAA", "equity": 1000, "average_buy_price": 10, "current_price": 12}]
     base = run_kelly_analysis(holdings, total_portfolio=100_000)
@@ -48,6 +53,8 @@ def test_run_kelly_analysis_applies_analyst_upside_and_ai_verdict(monkeypatch):
     )
 
     base_pct = base["holdings"][0]["optimal_pct"]
-    assert boosted["holdings"][0]["optimal_pct"] >= base_pct
-    assert penalized["holdings"][0]["optimal_pct"] <= base_pct
+    assert 0 < base_pct < 25.0
+    assert boosted["holdings"][0]["optimal_pct"] > base_pct
+    assert boosted["holdings"][0]["analyst_upside"] == 80
+    assert penalized["holdings"][0]["optimal_pct"] < base_pct
     assert penalized["holdings"][0]["ai_penalty"] == 0.5
