@@ -407,6 +407,34 @@ def test_paper_realized_pnl_uses_et_dst_midnight_bounds():
     assert state.paper_realized_pnl_usd_today(now=now) == pytest.approx(-60.0)
 
 
+def test_paper_realized_pnl_counts_iso_paper_trades_after_utc_midnight():
+    """UTC-ISO paper_trades whose calendar date rolled must still count.
+
+    Date-prefix matching alone misses 21:00 EDT (01:00 UTC the next day).
+    """
+    state.init_trading_tables()
+    with state._conn() as con:
+        con.execute("CREATE TABLE paper_trades (realized_pnl REAL, exit_time TEXT)")
+        con.execute(
+            "INSERT INTO paper_trades VALUES (?, ?)",
+            (-400.0, "2026-08-05T01:00:00+00:00"),  # 21:00 EDT
+        )
+
+    evening = datetime(2026, 8, 4, 21, tzinfo=ZoneInfo("America/New_York"))
+    assert state.paper_realized_pnl_usd_today(now=evening) == pytest.approx(-400.0)
+
+    next_morning = datetime(2026, 8, 5, 9, tzinfo=ZoneInfo("America/New_York"))
+    assert state.paper_realized_pnl_usd_today(now=next_morning) == 0.0
+
+
+def test_daily_gates_share_et_dst_window():
+    now = datetime(2026, 3, 8, 21, tzinfo=ZoneInfo("America/New_York"))
+    start, end, et_date = state._et_day_window(now)
+    assert et_date == "2026-03-08"
+    assert start == "2026-03-08T05:00:00+00:00"
+    assert end == "2026-03-09T04:00:00+00:00"
+
+
 def test_paper_realized_pnl_rejects_naive_now():
     with pytest.raises(ValueError, match="timezone-aware"):
         state.paper_realized_pnl_usd_today(now=datetime(2026, 8, 4, 16))
