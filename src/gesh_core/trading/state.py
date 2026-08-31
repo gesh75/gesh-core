@@ -363,6 +363,26 @@ def log_order(
 # ─── counters / history ───────────────────────────────────────────────────────
 
 
+def _aware_instant(now: datetime | None, *, owner: str) -> datetime:
+    instant = now or datetime.now(UTC)
+    if instant.tzinfo is None:
+        raise ValueError(f"{owner} now must be timezone-aware")
+    return instant
+
+
+def _et_day_window(instant: datetime) -> tuple[str, str, str]:
+    """ISO ``[start, end)`` and ET calendar date for the America/New_York day.
+
+    Shared by ``count_orders_today`` and ``paper_realized_pnl_usd_today`` so the
+    two daily gates cannot drift (UTC midnight vs ET midnight).
+    """
+    et = ZoneInfo("America/New_York")
+    et_day = instant.astimezone(et).date()
+    start_utc = datetime.combine(et_day, time.min, tzinfo=et).astimezone(UTC)
+    end_utc = datetime.combine(et_day + timedelta(days=1), time.min, tzinfo=et).astimezone(UTC)
+    return start_utc.isoformat(), end_utc.isoformat(), et_day.isoformat()
+
+
 def count_orders_today(
     mode: str | None = None,
     approved_only: bool = True,
@@ -380,16 +400,10 @@ def count_orders_today(
             deliberately returns every audit row inside the same ET bounds.
         now: Optional timezone-aware instant for deterministic callers/tests.
     """
-    instant = now or datetime.now(UTC)
-    if instant.tzinfo is None:
-        raise ValueError("count_orders_today now must be timezone-aware")
-    et = ZoneInfo("America/New_York")
-    et_day = instant.astimezone(et).date()
-    start_utc = datetime.combine(et_day, time.min, tzinfo=et).astimezone(UTC)
-    end_utc = datetime.combine(et_day + timedelta(days=1), time.min, tzinfo=et).astimezone(UTC)
+    start_iso, end_iso, _et_date = _et_day_window(_aware_instant(now, owner="count_orders_today"))
 
     sql = "SELECT COUNT(*) AS n FROM orders WHERE placed_at >= ? AND placed_at < ?"
-    params: list[Any] = [start_utc.isoformat(), end_utc.isoformat()]
+    params: list[Any] = [start_iso, end_iso]
     if approved_only:
         sql += (
             " AND status IN ('SIMULATED', 'SUBMITTED', 'FILLED', 'ERROR')"
@@ -424,16 +438,9 @@ def paper_realized_pnl_usd_today(*, now: datetime | None = None) -> float:
     Args:
         now: Optional timezone-aware instant for deterministic callers/tests.
     """
-    instant = now or datetime.now(UTC)
-    if instant.tzinfo is None:
-        raise ValueError("paper_realized_pnl_usd_today now must be timezone-aware")
-    et = ZoneInfo("America/New_York")
-    et_day = instant.astimezone(et).date()
-    start_utc = datetime.combine(et_day, time.min, tzinfo=et).astimezone(UTC)
-    end_utc = datetime.combine(et_day + timedelta(days=1), time.min, tzinfo=et).astimezone(UTC)
-    start_iso = start_utc.isoformat()
-    end_iso = end_utc.isoformat()
-    et_date = et_day.isoformat()
+    start_iso, end_iso, et_date = _et_day_window(
+        _aware_instant(now, owner="paper_realized_pnl_usd_today")
+    )
 
     total = 0.0
     seen = 0
@@ -450,10 +457,17 @@ def paper_realized_pnl_usd_today(*, now: datetime | None = None) -> float:
             if "no such table" not in str(e).lower():
                 raise
         try:
+            # Naive product rows are "YYYY-MM-DD HH:MM" (ET calendar date).
+            # ISO instants (…T…±offset) use the same [start, end) window as
+            # paper_outcomes. Mixing the two predicates double-counts a 21:00
+            # ET close on the next UTC morning (date prefix 01:00Z = next day).
             row = con.execute(
                 "SELECT COALESCE(SUM(realized_pnl), 0.0) AS s FROM paper_trades "
-                "WHERE exit_time IS NOT NULL AND substr(exit_time, 1, 10) = ?",
-                [et_date],
+                "WHERE exit_time IS NOT NULL AND ("
+                "(instr(exit_time, 'T') = 0 AND substr(exit_time, 1, 10) = ?) "
+                "OR (instr(exit_time, 'T') > 0 AND exit_time >= ? AND exit_time < ?)"
+                ")",
+                [et_date, start_iso, end_iso],
             ).fetchone()
             total += float(row["s"] or 0.0)
             seen += 1
