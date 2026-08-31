@@ -38,9 +38,7 @@ def test_run_kelly_analysis_applies_analyst_upside_and_ai_verdict(monkeypatch):
     drift = (np.random.default_rng(0).normal(0.003, 0.01, 120)).astype(float)
     monkeypatch.setattr(kelly, "_fetch_returns", lambda symbol, days=90: drift)
 
-    holdings = [
-        {"symbol": "AAA", "equity": 1000, "average_buy_price": 10, "current_price": 12}
-    ]
+    holdings = [{"symbol": "AAA", "equity": 1000, "average_buy_price": 10, "current_price": 12}]
     base = run_kelly_analysis(holdings, total_portfolio=100_000)
     boosted = run_kelly_analysis(
         holdings, total_portfolio=100_000, analyst_targets={"AAA": {"upside_pct": 80}}
