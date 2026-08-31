@@ -9,7 +9,7 @@ the PAPER daily-loss circuit breaker.
 from __future__ import annotations
 
 import sqlite3
-from datetime import UTC, datetime
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -22,10 +22,6 @@ def _tmp_db(tmp_path, monkeypatch):
     # Isolate every test to its own DB (never touch a real gesh_financial.db).
     monkeypatch.setattr(state, "DB_PATH", tmp_path / "gesh_financial.db")
     yield
-
-
-def _today_iso():
-    return datetime.now(UTC).strftime("%Y-%m-%d") + "T12:00:00+00:00"
 
 
 def _insert_order(
@@ -327,24 +323,30 @@ def test_job_markers_roundtrip():
 
 def test_paper_realized_pnl_sums_both_books():
     state.init_trading_tables()
-    today = _today_iso()
-    today_date = today[:10]
+    now = datetime(2026, 8, 4, 16, tzinfo=ZoneInfo("America/New_York"))
     with state._conn() as con:
         con.execute("CREATE TABLE paper_outcomes (pnl_usd REAL, exit_at TEXT)")
-        con.execute("INSERT INTO paper_outcomes VALUES (?, ?)", (-120.0, today))
+        con.execute(
+            "INSERT INTO paper_outcomes VALUES (?, ?)",
+            (-120.0, "2026-08-04T16:00:00+00:00"),
+        )
         con.execute("CREATE TABLE paper_trades (realized_pnl REAL, exit_time TEXT)")
-        con.execute("INSERT INTO paper_trades VALUES (?, ?)", (-30.0, today_date + " 10:00"))
+        con.execute("INSERT INTO paper_trades VALUES (?, ?)", (-30.0, "2026-08-04 10:00"))
     # -120 (tracker book) + -30 (daily-chain book) = -150
-    assert state.paper_realized_pnl_usd_today() == pytest.approx(-150.0)
+    assert state.paper_realized_pnl_usd_today(now=now) == pytest.approx(-150.0)
 
 
 def test_paper_realized_pnl_engine_like_when_no_paper_trades():
     # Engine: paper_trades empty/absent -> equals paper_outcomes-only sum.
     state.init_trading_tables()
+    now = datetime(2026, 8, 4, 16, tzinfo=ZoneInfo("America/New_York"))
     with state._conn() as con:
         con.execute("CREATE TABLE paper_outcomes (pnl_usd REAL, exit_at TEXT)")
-        con.execute("INSERT INTO paper_outcomes VALUES (?, ?)", (-75.0, _today_iso()))
-    assert state.paper_realized_pnl_usd_today() == pytest.approx(-75.0)
+        con.execute(
+            "INSERT INTO paper_outcomes VALUES (?, ?)",
+            (-75.0, "2026-08-04T16:00:00+00:00"),
+        )
+    assert state.paper_realized_pnl_usd_today(now=now) == pytest.approx(-75.0)
 
 
 def test_paper_realized_pnl_failsafe_no_tables():
@@ -354,12 +356,60 @@ def test_paper_realized_pnl_failsafe_no_tables():
 
 def test_paper_realized_pnl_ignores_other_days():
     state.init_trading_tables()
+    now = datetime(2026, 8, 4, 16, tzinfo=ZoneInfo("America/New_York"))
     with state._conn() as con:
         con.execute("CREATE TABLE paper_outcomes (pnl_usd REAL, exit_at TEXT)")
         con.execute(
             "INSERT INTO paper_outcomes VALUES (?, ?)", (-999.0, "2020-01-01T00:00:00+00:00")
         )
-    assert state.paper_realized_pnl_usd_today() == 0.0
+    assert state.paper_realized_pnl_usd_today(now=now) == 0.0
+
+
+def test_paper_realized_pnl_keeps_same_et_day_losses_after_utc_midnight():
+    """Afternoon ET losses must still trip the breaker after 20:00 ET.
+
+    UTC midnight is 20:00 EDT / 19:00 EST. A UTC-day window dropped those
+    closes and the daily-loss gate failed open for the rest of the ET session.
+    """
+    state.init_trading_tables()
+    with state._conn() as con:
+        con.execute("CREATE TABLE paper_outcomes (pnl_usd REAL, exit_at TEXT)")
+        con.execute(
+            "INSERT INTO paper_outcomes VALUES (?, ?)",
+            (-1000.0, "2026-08-04T19:00:00+00:00"),  # 15:00 EDT
+        )
+        con.execute("CREATE TABLE paper_trades (realized_pnl REAL, exit_time TEXT)")
+        con.execute("INSERT INTO paper_trades VALUES (?, ?)", (-250.0, "2026-08-04 15:00"))
+
+    evening = datetime(2026, 8, 4, 21, tzinfo=ZoneInfo("America/New_York"))
+    assert state.paper_realized_pnl_usd_today(now=evening) == pytest.approx(-1250.0)
+
+    next_morning = datetime(2026, 8, 5, 9, tzinfo=ZoneInfo("America/New_York"))
+    assert state.paper_realized_pnl_usd_today(now=next_morning) == 0.0
+
+
+def test_paper_realized_pnl_uses_et_dst_midnight_bounds():
+    # 2026-03-08 is a 23-hour ET day: [05:00Z, next-day 04:00Z).
+    state.init_trading_tables()
+    now = datetime(2026, 3, 8, 21, tzinfo=ZoneInfo("America/New_York"))
+    with state._conn() as con:
+        con.execute("CREATE TABLE paper_outcomes (pnl_usd REAL, exit_at TEXT)")
+        con.executemany(
+            "INSERT INTO paper_outcomes VALUES (?, ?)",
+            [
+                (-10.0, "2026-03-08T04:59:59+00:00"),  # previous ET day
+                (-20.0, "2026-03-08T05:00:00+00:00"),  # ET midnight
+                (-40.0, "2026-03-09T03:59:59+00:00"),  # still 2026-03-08 ET
+                (-80.0, "2026-03-09T04:00:00+00:00"),  # next ET day
+            ],
+        )
+
+    assert state.paper_realized_pnl_usd_today(now=now) == pytest.approx(-60.0)
+
+
+def test_paper_realized_pnl_rejects_naive_now():
+    with pytest.raises(ValueError, match="timezone-aware"):
+        state.paper_realized_pnl_usd_today(now=datetime(2026, 8, 4, 16))
 
 
 def test_count_orders_includes_error_by_default():
