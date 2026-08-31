@@ -22,7 +22,7 @@ never by tag — the latest Git tag is still `v0.6.1`.
 
 - **[docs/architecture.html](docs/architecture.html)** — interactive architecture dashboard (module map, shim pattern, DB resolution).
 - **[docs/consensus-comparison.html](docs/consensus-comparison.html)** — engine vs product consensus + convergence roadmap.
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CONSENSUS_CONVERGENCE.md](docs/CONSENSUS_CONVERGENCE.md) · [docs/LEDGER_PHASE4A.md](docs/LEDGER_PHASE4A.md) · [PHASE3_STATUS.md](PHASE3_STATUS.md) · [CHANGELOG.md](CHANGELOG.md)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/DCF.md](docs/DCF.md) · [docs/CONSENSUS_CONVERGENCE.md](docs/CONSENSUS_CONVERGENCE.md) · [docs/LEDGER_PHASE4A.md](docs/LEDGER_PHASE4A.md) · [PHASE3_STATUS.md](PHASE3_STATUS.md) · [CHANGELOG.md](CHANGELOG.md)
 
 ## Why
 
@@ -67,5 +67,8 @@ gesh-core @ git+https://github.com/gesh75/gesh-core.git@<full-sha>
 ## Tests
 
 `tests/` holds the characterization/parity tests that pin behavior so an
-extraction cannot silently regress. Run with `pytest`. CI also runs ruff + mypy
-and a filesystem-driven import of every non-vendored module.
+extraction cannot silently regress (**329** `test_*` functions across 25 files).
+Run with `pytest`. CI also runs ruff + mypy and a filesystem-driven import of
+every non-vendored module. On low-ulimit runners (Buildkite GHA) raise
+`ulimit -n` before pytest — see the CI runbook in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#ci-runbook).
