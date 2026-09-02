@@ -207,8 +207,11 @@ def test_validate_action_rejects_nonfinite_trade_inputs(tmp_path, monkeypatch):
     for kwargs, needle in (
         ({"trade_usd": float("nan")}, "Invalid trade size"),
         ({"trade_usd": float("inf")}, "Invalid trade size"),
+        ({"trade_usd": float("-inf")}, "Invalid trade size"),
+        ({"trade_usd": -1.0}, "Invalid trade size"),
         ({"open_positions": float("nan")}, "Invalid open position count"),
         ({"current_cash": float("nan")}, "Invalid cash balance"),
+        ({"current_cash": float("inf")}, "Invalid cash balance"),
         ({"current_price": float("nan")}, "Invalid price"),
     ):
         args = {"trade_usd": 100.0, "open_positions": 0, "current_cash": 100_000}
@@ -216,6 +219,30 @@ def test_validate_action_rejects_nonfinite_trade_inputs(tmp_path, monkeypatch):
         ok, reason = ac.validate_action("BUY", "NVDA", **args)
         assert ok is False, (kwargs, reason)
         assert needle in reason
+
+
+def test_sell_trim_ignore_dirty_entry_only_fields(tmp_path, monkeypatch):
+    """NaN cash / position count must not block exits — those fields are BUY/ADD-only."""
+    cfg = dict(ac.DEFAULT_CONFIG)
+    cfg["auto_trade"] = True
+    path = tmp_path / "gesh_config.json"
+    path.write_text(json.dumps(cfg))
+    monkeypatch.setenv("GESH_CONFIG_PATH", str(path))
+
+    for action in ("SELL", "TRIM"):
+        ok, reason = ac.validate_action(
+            action,
+            "NVDA",
+            trade_usd=100.0,
+            open_positions=float("nan"),
+            current_cash=float("nan"),
+        )
+        assert ok is True, (action, reason)
+
+    ok, reason = ac.validate_action(
+        "SELL", "NVDA", trade_usd=float("nan"), open_positions=1, current_cash=100_000
+    )
+    assert ok is False and "Invalid trade size" in reason
 
 
 def test_nan_config_caps_fall_back_to_defaults(tmp_path, monkeypatch):

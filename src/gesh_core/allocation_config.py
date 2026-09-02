@@ -251,14 +251,22 @@ def validate_action(
     if not isinstance(action, str) or action not in TRADE_ACTIONS:
         return False, "Invalid action — expected BUY, ADD, TRIM, or SELL"
 
-    # Non-finite caller inputs: NaN/inf comparisons are always False, so a
-    # NaN quote-derived size or NaN broker cash would skip every numeric gate.
+    # Size feeds the dollar cap for every action. NaN/inf comparisons are
+    # always False, so a NaN quote-derived size would skip the cap.
     if not _finite_number(trade_usd) or trade_usd < 0:
         return False, "Invalid trade size"
-    if not _finite_number(open_positions) or open_positions < 0:
-        return False, "Invalid open position count"
-    if current_cash is not None and not _finite_number(current_cash):
-        return False, "Invalid cash balance"
+
+    # Position count and cash only feed BUY/ADD gates. Rejecting them on
+    # SELL/TRIM would block emergency exits when the broker snapshot is
+    # dirty (same class as the CASH_FLOOR fail-closed work).
+    if action in ("BUY", "ADD"):
+        if not _finite_number(open_positions) or open_positions < 0:
+            return False, "Invalid open position count"
+        if current_cash is not None and not _finite_number(current_cash):
+            return False, "Invalid cash balance"
+
+    # Price feeds the scanner band (currently all actions when timeframe
+    # is not daily). A NaN quote would skip the min/max comparisons.
     if current_price is not None and not _finite_number(current_price):
         return False, "Invalid price"
 
