@@ -224,7 +224,7 @@ def test_validate_action_rejects_nonfinite_trade_usd(tmp_path, monkeypatch):
     path.write_text(json.dumps(cfg))
     monkeypatch.setenv("GESH_CONFIG_PATH", str(path))
 
-    for size in (float("nan"), float("inf"), float("-inf"), True, "100"):
+    for size in (float("nan"), float("inf"), float("-inf"), True, "100", -1.0):
         ok, reason = ac.validate_action(
             "BUY", "NVDA", size, open_positions=0, current_cash=100_000
         )
@@ -246,6 +246,32 @@ def test_validate_action_rejects_nonfinite_cash(tmp_path, monkeypatch):
     assert "Invalid cash" in reason
 
 
+def test_validate_action_rejects_nonfinite_price_and_positions(tmp_path, monkeypatch):
+    """NaN price skips the scanner band; NaN position count skips the cap."""
+    cfg = dict(ac.DEFAULT_CONFIG)
+    cfg["auto_trade"] = True
+    path = tmp_path / "gesh_config.json"
+    path.write_text(json.dumps(cfg))
+    monkeypatch.setenv("GESH_CONFIG_PATH", str(path))
+
+    ok, reason = ac.validate_action(
+        "BUY", "NVDA", 100.0, open_positions=float("nan"), current_cash=100_000
+    )
+    assert ok is False
+    assert "Invalid open position count" in reason
+
+    ok, reason = ac.validate_action(
+        "BUY",
+        "NVDA",
+        100.0,
+        open_positions=0,
+        current_cash=100_000,
+        current_price=float("nan"),
+    )
+    assert ok is False
+    assert "Invalid price" in reason
+
+
 def test_sell_trim_ignore_dirty_cash(tmp_path, monkeypatch):
     """NaN cash must not block exits — the cash floor is BUY/ADD-only."""
     cfg = dict(ac.DEFAULT_CONFIG)
@@ -257,6 +283,25 @@ def test_sell_trim_ignore_dirty_cash(tmp_path, monkeypatch):
     for action in ("SELL", "TRIM"):
         ok, reason = ac.validate_action(
             action, "NVDA", 100.0, open_positions=1, current_cash=float("nan")
+        )
+        assert ok is True, (action, reason)
+
+
+def test_sell_trim_ignore_dirty_position_count(tmp_path, monkeypatch):
+    """NaN open_positions must not block exits — that cap is BUY/ADD-only."""
+    cfg = dict(ac.DEFAULT_CONFIG)
+    cfg["auto_trade"] = True
+    path = tmp_path / "gesh_config.json"
+    path.write_text(json.dumps(cfg))
+    monkeypatch.setenv("GESH_CONFIG_PATH", str(path))
+
+    for action in ("SELL", "TRIM"):
+        ok, reason = ac.validate_action(
+            action,
+            "NVDA",
+            100.0,
+            open_positions=float("nan"),
+            current_cash=100_000,
         )
         assert ok is True, (action, reason)
 
