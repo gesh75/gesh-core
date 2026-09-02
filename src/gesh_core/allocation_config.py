@@ -35,6 +35,7 @@ import json
 import logging
 import os
 from datetime import UTC, datetime
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -100,6 +101,18 @@ PRICE_CAPPED_MODES = {"stock"}
 # normalizing malformed actions keeps every safety check fail-closed.
 TRADE_ACTIONS = frozenset({"BUY", "ADD", "TRIM", "SELL"})
 
+
+def _finite_number(value: Any) -> bool:
+    """True for a real int/float usable in gate comparisons.
+
+    bool subclasses int, and NaN/inf make every ``<`` / ``>`` / ``>=`` False,
+    so both must be rejected before they reach a safety check.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    return isfinite(value)
+
+
 # ─── Load / Save ──────────────────────────────────────────────────────────────
 
 def _coerce_key(key: str, value: Any) -> tuple[Any, bool]:
@@ -119,6 +132,10 @@ def _coerce_key(key: str, value: Any) -> tuple[Any, bool]:
         return (value, True) if isinstance(value, bool) else (default, False)
     if isinstance(default, (int, float)):
         if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return default, False
+        # Python json.loads accepts NaN/Infinity; those comparisons fail open
+        # inside validate_action (nan > cap is False), so refuse them here.
+        if not isfinite(float(value)):
             return default, False
         return (float(value) if isinstance(default, float) else value), True
     if isinstance(default, str):
@@ -234,6 +251,17 @@ def validate_action(
     if not isinstance(action, str) or action not in TRADE_ACTIONS:
         return False, "Invalid action — expected BUY, ADD, TRIM, or SELL"
 
+    # Non-finite caller inputs: NaN/inf comparisons are always False, so a
+    # NaN quote-derived size or NaN broker cash would skip every numeric gate.
+    if not _finite_number(trade_usd) or trade_usd < 0:
+        return False, "Invalid trade size"
+    if not _finite_number(open_positions) or open_positions < 0:
+        return False, "Invalid open position count"
+    if current_cash is not None and not _finite_number(current_cash):
+        return False, "Invalid cash balance"
+    if current_price is not None and not _finite_number(current_price):
+        return False, "Invalid price"
+
     # 1. Auto-trade gate
     if not cfg["auto_trade"]:
         return False, "Auto-trade is OFF — review and execute manually"
@@ -246,6 +274,8 @@ def validate_action(
         cap = cfg["max_stock_per_trade"]
         cap_label = "stock"
 
+    if not _finite_number(cap) or cap < 0:
+        return False, f"Invalid max {cap_label} per trade"
     if trade_usd > cap:
         return False, (
             f"Trade size ${trade_usd:,.0f} exceeds max {cap_label} per trade "
@@ -253,19 +283,25 @@ def validate_action(
         )
 
     # 3. Max open positions
-    if action in ("BUY", "ADD") and open_positions >= cfg["max_open_positions"]:
+    max_open = cfg["max_open_positions"]
+    if not _finite_number(max_open) or max_open < 0:
+        return False, "Invalid max open positions"
+    if action in ("BUY", "ADD") and open_positions >= max_open:
         return False, (
-            f"Already at max open positions ({cfg['max_open_positions']}). "
+            f"Already at max open positions ({max_open}). "
             "Close a position before opening another."
         )
 
     # 4. Cash buffer
     if current_cash is not None and action in ("BUY", "ADD"):
+        min_cash = cfg["min_cash_buffer"]
+        if not _finite_number(min_cash):
+            return False, "Invalid cash buffer"
         remaining = current_cash - trade_usd
-        if remaining < cfg["min_cash_buffer"]:
+        if remaining < min_cash:
             return False, (
                 f"Trade would leave ${remaining:,.0f} cash — below "
-                f"${cfg['min_cash_buffer']:,.0f} minimum buffer. Reduce size."
+                f"${min_cash:,.0f} minimum buffer. Reduce size."
             )
 
     # 5. Price filter (scanner mode)

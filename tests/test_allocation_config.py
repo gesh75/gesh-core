@@ -194,3 +194,44 @@ def test_update_config_rejects_wrong_type():
     import pytest
     with pytest.raises(ValueError, match="auto_trade"):
         ac.update_config(auto_trade="yes")
+
+
+def test_validate_action_rejects_nonfinite_trade_inputs(tmp_path, monkeypatch):
+    """NaN/inf skip every numeric comparison (nan > cap is False) — fail closed."""
+    cfg = dict(ac.DEFAULT_CONFIG)
+    cfg["auto_trade"] = True
+    path = tmp_path / "gesh_config.json"
+    path.write_text(json.dumps(cfg))
+    monkeypatch.setenv("GESH_CONFIG_PATH", str(path))
+
+    for kwargs, needle in (
+        ({"trade_usd": float("nan")}, "Invalid trade size"),
+        ({"trade_usd": float("inf")}, "Invalid trade size"),
+        ({"open_positions": float("nan")}, "Invalid open position count"),
+        ({"current_cash": float("nan")}, "Invalid cash balance"),
+        ({"current_price": float("nan")}, "Invalid price"),
+    ):
+        args = {"trade_usd": 100.0, "open_positions": 0, "current_cash": 100_000}
+        args.update(kwargs)
+        ok, reason = ac.validate_action("BUY", "NVDA", **args)
+        assert ok is False, (kwargs, reason)
+        assert needle in reason
+
+
+def test_nan_config_caps_fall_back_to_defaults(tmp_path, monkeypatch):
+    """Python json.loads accepts NaN/Infinity; those must not disable the dollar cap."""
+    p = tmp_path / "gesh_config.json"
+    # Allow NaN/Infinity through the JSON parser the same way a prior save would.
+    p.write_text(
+        '{"auto_trade": true, "max_stock_per_trade": NaN, "min_cash_buffer": Infinity}'
+    )
+    monkeypatch.setenv("GESH_CONFIG_PATH", str(p))
+
+    loaded = ac.load_config()
+    assert loaded["max_stock_per_trade"] == 5000.0
+    assert loaded["min_cash_buffer"] == 500.0
+
+    ok, reason = ac.validate_action(
+        "BUY", "NVDA", trade_usd=6000.0, open_positions=0, current_cash=100_000
+    )
+    assert ok is False and "exceeds max" in reason
