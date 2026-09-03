@@ -94,16 +94,23 @@ _BEAR_WORDS = {"sell", "short", "puts", "bearish", "crash", "overvalued",
 # Tickers that are ordinary English. A case-insensitive `\bON\b` / `\bCOST\b`
 # match scores unrelated prose ("thoughts on NVDA", "the cost of") as if it
 # mentioned ON Semiconductor or Costco, and the vote then feeds consensus.
-# Those names may only match as $TICKER, or (3+ letters) as an all-caps token.
+# Cashtag-only names (1–2 letters, function words, trading verbs) require `$`.
+# Other English-word tickers may match as an all-caps bare token (COST, not cost).
+_CASHTAG_ONLY_TICKERS = frozenset({
+    # Trading actions — ALL CAPS posts shout these constantly.
+    "HOLD", "SELL", "BUY", "ADD", "TRIM", "CALL", "LONG", "BEAR", "BULL",
+    # Closed-class / function words. "ARE WE ALL IN NOW" is not Allstate.
+    "ALL", "ARE", "CAN", "FOR", "HAS", "NEW", "NOW", "OLD", "ONE", "OUT",
+    "YOU", "LOW", "RUN",
+})
 _ENGLISH_WORD_TICKERS = frozenset({
-    "ALL", "ARE", "CAN", "FOR", "HAS", "LOW", "NEW", "NOW", "OLD", "ONE",
-    "OUT", "YOU", "COST", "SHOP", "TEAM", "BILL", "FAST", "WELL", "OPEN",
-    "PLAY", "NET", "APP", "RUN", "BOX", "ARM", "KEY", "GAP", "CAT", "COP",
+    *_CASHTAG_ONLY_TICKERS,
+    "COST", "SHOP", "TEAM", "BILL", "FAST", "WELL", "OPEN",
+    "PLAY", "NET", "APP", "BOX", "ARM", "KEY", "GAP", "CAT", "COP",
     "ICE", "SEE", "TAP", "FOX", "META", "SNAP", "COIN", "SNOW", "DASH",
     "HOOD", "SPOT", "POST", "GOLD", "PLUS", "REAL", "GOOD", "BEST", "CARE",
     "LIFE", "HOPE", "LOVE", "GROW", "SAFE", "RISK", "FUND", "BOND", "RATE",
-    "GAIN", "LOSS", "MOVE", "HIGH", "DOWN", "LONG", "CALL", "HOLD", "SELL",
-    "BEAR", "BULL", "PEAK", "RISE", "FALL",
+    "GAIN", "LOSS", "MOVE", "HIGH", "DOWN", "PEAK", "RISE", "FALL",
 })
 
 
@@ -203,7 +210,8 @@ def _is_relevant(text: str, symbol: str) -> bool:
     if re.search(rf"\${sym}\b", text, re.IGNORECASE):
         return True
     # 1–2 letter tickers collide with English (a, on, it, so, be). Require $.
-    if len(ticker) <= 2:
+    # Function words and trading verbs collide even when the post is ALL CAPS.
+    if len(ticker) <= 2 or ticker in _CASHTAG_ONLY_TICKERS:
         return False
     # English-word tickers: allow an all-caps bare token (COST, not cost).
     if ticker in _ENGLISH_WORD_TICKERS:
