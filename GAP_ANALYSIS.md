@@ -14,6 +14,8 @@ This is a **verifiable** scan: every P0 has a file path plus a reproduced failin
 | `pytest -q` | green (post-fix; was 442 passed on `main`) |
 | CI import-all-modules (`ci.yml` filesystem walk) | 30 non-vendor modules |
 | GitHub Actions on `main` | success, run `33033241239` |
+| This PR required GHA (`lint` + test 3.12/3.13/3.14) | success, run `33942411302` |
+| Buildkite `CI (pull_request)` on this PR | **failed** — importer path-filter eval, not pytest (P1-15) |
 | Latest Git tag | `v0.6.1` (no `v0.7` / `v0.8`) |
 | GitHub Releases | **none** (`gh api …/releases` → `0`) |
 | Root `LICENSE` | **missing** |
@@ -83,6 +85,7 @@ Ran from this checkout: exit 0, every symbol `ERR` (`? None`). Hard-coded macOS 
 | P1-8 | Coverage is informational; no floor | `.github/workflows/ci.yml` L93: `--cov=gesh_core` with no `--cov-fail-under`. `CHANGELOG.md` L28: “informational, no floor yet”. Copilot asks for 80%+ (`.github/copilot-instructions.md` L29); suite is ~75%. |
 | P1-9 | Copilot setup diverges from CI | `copilot-setup-steps.yml`: `checkout@v4`, `setup-python@v5`, `pip install -e '.[dev]'`, no ruff/mypy/pytest. `ci.yml`: `@v5`/`@v6`, `".[test]"`, ruff + mypy + pytest. |
 | P1-10 | `ruff format` not gated | `ci.yml` L36 is `ruff check` only. `ruff format --check src tests` exits 1 (32 files). Do **not** mass-format in this PR. |
+| P1-15 | Buildkite GHA importer fails this PR independently of GitHub-hosted CI | Required jobs on this PR (`lint`, `test` 3.12/3.13/3.14) succeeded (Actions run `33942411302`). Buildkite check `CI (pull_request)` failed: *“Pull_request trigger path filters could not be evaluated safely”* / *“event snapshot requires full lowercase payload.pull_request base, head, and merge commit SHAs”*. `.github/workflows/ci.yml` has **no** `paths:` filter. Same importer previously needed `ulimit -n` (`56f14d4`, #46). Not a test failure. |
 
 ### Security / DX / docs (P1)
 
