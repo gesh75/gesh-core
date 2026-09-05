@@ -11,6 +11,7 @@ Inputs per holding: price history (90d), analyst upside, current allocation
 import logging
 import math
 import os
+import sys
 
 import numpy as np
 import pandas as pd
@@ -67,10 +68,7 @@ def _max_position_pct() -> float:
 
 def _max_gross_exposure() -> float:
     """Gross-exposure cap as a fraction (1.0 = 100%). Env KELLY_MAX_GROSS_PCT."""
-    try:
-        return float(os.getenv("KELLY_MAX_GROSS_PCT", str(_DEFAULT_MAX_GROSS_PCT)))
-    except (TypeError, ValueError):
-        return _DEFAULT_MAX_GROSS_PCT
+    return _parse_position_cap(os.getenv("KELLY_MAX_GROSS_PCT"), _DEFAULT_MAX_GROSS_PCT)
 
 
 def _corr_threshold() -> float:
@@ -150,9 +148,15 @@ def _fetch_returns(symbol: str, days: int = 90) -> pd.Series | None:
         except Exception:
             raw = None
         if raw is None or raw.empty:
-            # Yahoo 401/crumb storm — fall back to Robinhood OHLCV.
-            import price_source  # noqa: PLC0415
-            raw = price_source.rh_fallback(symbol, period="2y", interval="1d")
+            # Yahoo 401/crumb storm — fall back to Robinhood OHLCV only when the
+            # host already imported its trusted `price_source`. Discovering that
+            # name via sys.path (cwd is first) would execute a planted module.
+            ps = sys.modules.get("price_source")
+            raw = (
+                ps.rh_fallback(symbol, period="2y", interval="1d")
+                if ps is not None
+                else None
+            )
         if raw is None or raw.empty:
             return None
         raw = raw.tail(days + 10)

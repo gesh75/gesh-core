@@ -44,6 +44,13 @@ def test_parse_position_cap_valid_string():
     assert kelly._parse_position_cap("0.18", 0.25) == 0.18
 
 
+@pytest.mark.parametrize("value", ["", "abc", "nan", "inf", "-0.1", "1.1", "100"])
+def test_invalid_gross_cap_env_fails_safe(value, monkeypatch):
+    """KELLY_MAX_GROSS_PCT must use the same finite-[0,1] parser as position cap."""
+    monkeypatch.setenv("KELLY_MAX_GROSS_PCT", value)
+    assert kelly._max_gross_exposure() == 1.0
+
+
 @pytest.mark.parametrize("value", ["", "abc", "nan", "inf", "-0.1", "1.1"])
 def test_invalid_position_cap_env_fails_safe(value):
     env = os.environ.copy()
@@ -388,3 +395,59 @@ def test_fetch_returns_normalizes_tz_aware_index(monkeypatch):
     assert isinstance(out, pd.Series)
     assert out.index.tz is None
     assert (out.index == out.index.normalize()).all()
+
+
+def test_fetch_returns_does_not_import_untrusted_price_source(monkeypatch, tmp_path):
+    """Yahoo-empty must not exec a cwd/sys.path `price_source.py` (market_fetch already pins this)."""
+
+    class _Empty:
+        empty = True
+
+    class _FakeTicker:
+        def __init__(self, symbol):
+            pass
+
+        def history(self, **kwargs):
+            return _Empty()
+
+    marker = tmp_path / "imported"
+    (tmp_path / "price_source.py").write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).touch()\n"
+        "def rh_fallback(*a, **k):\n    return None\n"
+    )
+    monkeypatch.setattr(kelly.yf, "Ticker", _FakeTicker)
+    monkeypatch.syspath_prepend(tmp_path)
+    monkeypatch.delitem(sys.modules, "price_source", raising=False)
+
+    assert kelly._fetch_returns("NVDA") is None
+    assert not marker.exists()
+    assert "price_source" not in sys.modules
+
+
+def test_fetch_returns_uses_already_imported_host_price_source(monkeypatch):
+    """Hosts that already imported their trusted price_source still get the RH fallback."""
+    import types
+
+    import pandas as pd
+
+    class _Empty:
+        empty = True
+
+    class _FakeTicker:
+        def __init__(self, symbol):
+            pass
+
+        def history(self, **kwargs):
+            return _Empty()
+
+    idx = pd.date_range("2026-01-05", periods=45, freq="B")
+    frame = pd.DataFrame({"Close": np.linspace(100, 120, 45)}, index=idx)
+    stub = types.ModuleType("price_source")
+    stub.rh_fallback = lambda symbol, **k: frame
+
+    monkeypatch.setattr(kelly.yf, "Ticker", _FakeTicker)
+    monkeypatch.setitem(sys.modules, "price_source", stub)
+
+    out = kelly._fetch_returns("NVDA")
+    assert isinstance(out, pd.Series)
+    assert len(out) >= MIN_HISTORY_DAYS
