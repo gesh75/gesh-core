@@ -35,6 +35,7 @@ import json
 import logging
 import os
 from datetime import UTC, datetime
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -233,6 +234,17 @@ def validate_action(
 
     if not isinstance(action, str) or action not in TRADE_ACTIONS:
         return False, "Invalid action — expected BUY, ADD, TRIM, or SELL"
+
+    # Non-finite sizes fail closed: ``NaN > cap`` is False in IEEE-754, which
+    # would otherwise let a missing/poisoned size through the dollar cap.
+    if not isinstance(trade_usd, (int, float)) or isinstance(trade_usd, bool) or not isfinite(trade_usd):
+        return False, "Invalid trade size — expected a finite number"
+    if current_cash is not None and (
+        not isinstance(current_cash, (int, float))
+        or isinstance(current_cash, bool)
+        or not isfinite(current_cash)
+    ):
+        return False, "Invalid cash — expected a finite number"
 
     # 1. Auto-trade gate
     if not cfg["auto_trade"]:

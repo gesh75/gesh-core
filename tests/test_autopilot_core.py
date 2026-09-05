@@ -26,6 +26,13 @@ def test_entry_floor(action, raw, floor, blocked):
     assert entry_floor_blocks(action, raw, floor) is blocked
 
 
+@pytest.mark.parametrize("raw", [float("nan"), float("inf"), float("-inf")])
+def test_entry_floor_nonfinite_raw_score_blocks_buy(raw):
+    """NaN < floor is False in IEEE-754 — a missing score must not open a long."""
+    assert entry_floor_blocks("BUY", raw, 0.35) is True
+    assert entry_floor_blocks("SELL", raw, 0.35) is False
+
+
 # ── candidate marker round-trip ───────────────────────────────────────────────
 
 def test_marker_roundtrip_same_day():

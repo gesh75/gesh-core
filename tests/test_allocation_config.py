@@ -194,3 +194,33 @@ def test_update_config_rejects_wrong_type():
     import pytest
     with pytest.raises(ValueError, match="auto_trade"):
         ac.update_config(auto_trade="yes")
+
+
+def test_validate_action_rejects_nonfinite_trade_usd(tmp_path, monkeypatch):
+    """NaN > cap is False in IEEE-754 — a poisoned size must not pass the gate."""
+    cfg = dict(ac.DEFAULT_CONFIG)
+    cfg["auto_trade"] = True
+    path = tmp_path / "gesh_config.json"
+    path.write_text(json.dumps(cfg))
+    monkeypatch.setenv("GESH_CONFIG_PATH", str(path))
+
+    for size in (float("nan"), float("inf"), float("-inf"), True, "100"):
+        ok, reason = ac.validate_action(
+            "BUY", "NVDA", size, open_positions=0, current_cash=100_000
+        )
+        assert ok is False, size
+        assert "Invalid trade size" in reason
+
+
+def test_validate_action_rejects_nonfinite_cash(tmp_path, monkeypatch):
+    cfg = dict(ac.DEFAULT_CONFIG)
+    cfg["auto_trade"] = True
+    path = tmp_path / "gesh_config.json"
+    path.write_text(json.dumps(cfg))
+    monkeypatch.setenv("GESH_CONFIG_PATH", str(path))
+
+    ok, reason = ac.validate_action(
+        "BUY", "NVDA", 100.0, open_positions=0, current_cash=float("nan")
+    )
+    assert ok is False
+    assert "Invalid cash" in reason

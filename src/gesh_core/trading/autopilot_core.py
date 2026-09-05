@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable
+from math import isfinite
 
 from .contract import TradeIntent
 
@@ -31,8 +32,15 @@ def entry_floor_blocks(action: str, raw_score: float, min_entry_score: float) ->
     strength — alone it let near-coin-flip weighted scores trade. The floor
     gates BUYs on the consensus raw_score instead. SELL is a managed exit and
     is NEVER gated; HOLD never reaches execution.
+
+    Non-finite scores fail closed: ``NaN < floor`` is False in IEEE-754, which
+    would otherwise let a missing consensus number through as a new long.
     """
-    return action == "BUY" and raw_score < min_entry_score
+    if action != "BUY":
+        return False
+    if not isfinite(raw_score) or not isfinite(min_entry_score):
+        return True
+    return raw_score < min_entry_score
 
 
 def candidates_marker_json(symbols: Iterable[str], today_et: str) -> str:
