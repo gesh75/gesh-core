@@ -92,7 +92,7 @@ Each item cites a path and the evidence that made it P0.
 | ID | Gap | Evidence |
 |---|---|---|
 | P1-1 | Latest Git tag is still `v0.6.1`; no GitHub Releases; declared version is `0.8.2` | `gh api …/tags` → `v0.6.1` @ `f11c460f`; `…/releases` length `0`; `pyproject.toml` + `__init__.py` = `0.8.2`. README already warns “never pin a tag”. |
-| P1-2 | CI coverage is informational — no floor | `.github/workflows/ci.yml` `pytest --cov=gesh_core --cov-report=term-missing`; no `--cov-fail-under`. Copilot instructions ask for 80%+. |
+| P1-2 | CI coverage is informational — no floor | `.github/workflows/ci.yml` has no `--cov-fail-under`. This SHA: **76%** (`pytest --cov=gesh_core`, 450 passed). Copilot instructions ask for 80%+. Lowest: `dcf/sensitivity.py` 17%, `dcf/inputs.py` 30%, `dcf/__main__.py` 0%, `sentiment_connector.py` 57%. |
 | P1-3 | 27 open *draft* PRs (critical-bug + missing-test agents) never merged | `gh pr list --state open` on 2026-09-05. Includes fail-closed work that overlaps P0-2/P0-3/P0-4/P0-5. Process debt, not a code rewrite. |
 | P1-4 | Consumer pin freshness unverifiable from this token | `gh api repos/gesh75/Gesh-Project/contents/requirements.txt` and `gesh-project-trading` → 404. `PROJECT_CONTROL.md` last claimed product @ `49312393` (0.8.1, 1 commit behind *then*) and engine @ `33af7482` (0.8.0, 2 behind *then*). Both are now at least PR #46 behind. |
 | P1-5 | `htmlcov/` and `.sentiment_cache.json` are not gitignored | `.gitignore` has `.coverage` and `gesh_financial.db` but not the HTML cov tree or the sentiment cache written by `sentiment_connector.py`. |
