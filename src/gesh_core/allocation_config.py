@@ -239,10 +239,16 @@ def validate_action(
     # would otherwise let a missing/poisoned size through the dollar cap.
     if not isinstance(trade_usd, (int, float)) or isinstance(trade_usd, bool) or not isfinite(trade_usd):
         return False, "Invalid trade size — expected a finite number"
-    if current_cash is not None and (
-        not isinstance(current_cash, (int, float))
-        or isinstance(current_cash, bool)
-        or not isfinite(current_cash)
+    # Cash only feeds BUY/ADD gates. Rejecting it on SELL/TRIM would block
+    # emergency exits when the broker snapshot is dirty.
+    if (
+        current_cash is not None
+        and action in ("BUY", "ADD")
+        and (
+            not isinstance(current_cash, (int, float))
+            or isinstance(current_cash, bool)
+            or not isfinite(current_cash)
+        )
     ):
         return False, "Invalid cash — expected a finite number"
 

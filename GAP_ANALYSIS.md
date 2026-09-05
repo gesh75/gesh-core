@@ -33,8 +33,9 @@ Each item cites a path and the evidence that made it P0.
   `NaN < min_cash_buffer` are both `False`, so the dollar cap and cash floor
   never fire. `inf` was already blocked (`inf > cap`).
   `tests/test_allocation_config.py` had no non-finite size/cash cases.
-- **Fix in this PR:** non-finite / non-numeric `trade_usd` and `current_cash`
-  return `(False, "Invalid …")`.
+- **Fix in this PR:** non-finite / non-numeric `trade_usd` (all actions) and
+  `current_cash` on BUY/ADD return `(False, "Invalid …")`. SELL/TRIM still
+  ignore a dirty cash snapshot so emergency exits are not blocked.
 
 ### P0-3. `TradeIntent.validate` accepts NaN / +Inf stops
 
