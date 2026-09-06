@@ -22,7 +22,9 @@ def test_garbage_price_age_falls_back_to_300(monkeypatch) -> None:
 
 
 def test_fractional_looking_paper_price_age_falls_back(monkeypatch) -> None:
-    monkeypatch.setenv("MAX_PRICE_AGE_SECONDS_PAPER", "1800.0")
+    # 900.0 must not parse as 900 — that would silently tighten the paper
+    # freshness window. int("900.0") raises, so the 1800s default stays.
+    monkeypatch.setenv("MAX_PRICE_AGE_SECONDS_PAPER", "900.0")
     assert load_risk_config().max_price_age_seconds_paper == 1800
 
 
@@ -32,7 +34,8 @@ def test_garbage_paper_price_age_falls_back(monkeypatch) -> None:
 
 
 def test_fractional_looking_loss_days_does_not_truncate(monkeypatch) -> None:
-    monkeypatch.setenv("MAX_CONSECUTIVE_LOSS_DAYS", "3.5")
+    # 4.5 must not become 4 via float-then-int. The conservative default is 3.
+    monkeypatch.setenv("MAX_CONSECUTIVE_LOSS_DAYS", "4.5")
     assert load_risk_config().max_consecutive_loss_days == 3
 
 
