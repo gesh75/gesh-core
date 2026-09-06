@@ -153,11 +153,16 @@ def test_wash_window_includes_day_30(monkeypatch):
     FrozenDate._today = th.date(2026, 1, 31)
     last_day = th.get_wash_status("WWW")
     assert last_day["in_wash_window"] is True
+    assert last_day["days_remaining"] == 1
     positions = {"WWW": {"price": 8.0, "quantity": 100, "average_buy_price": 20.0}}
-    assert th.scan_tax_loss_candidates(positions)[0]["status"] == "IN_WASH_WINDOW"
+    scanned = th.scan_tax_loss_candidates(positions)[0]
+    assert scanned["status"] == "IN_WASH_WINDOW"
+    assert scanned["days_until_safe"] == 1
 
     FrozenDate._today = th.date(2026, 2, 1)
-    assert th.get_wash_status("WWW")["in_wash_window"] is False
+    clear = th.get_wash_status("WWW")
+    assert clear["in_wash_window"] is False
+    assert clear["days_remaining"] == 0
 
 
 # ─── get_harvest_summary ──────────────────────────────────────────────────────

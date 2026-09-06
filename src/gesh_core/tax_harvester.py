@@ -168,11 +168,18 @@ def get_wash_status(ticker: str) -> dict[str, Any]:
     # stored date as already safe, so a repurchase on wash_safe_date was a
     # wash sale and the harvested loss could be disallowed.
     in_window  = wash_safe >= today_str
-    days_rem   = (date.fromisoformat(wash_safe) - date.today()).days if in_window else 0
+    if in_window:
+        days_rem = (date.fromisoformat(wash_safe) - date.today()).days
+        # wash_safe_date is the last blocked day. A 0 delta still means
+        # today is blocked — report 1 so days_until_safe cannot read as
+        # cleared while in_wash_window is True.
+        days_rem = max(1, days_rem)
+    else:
+        days_rem = 0
     return {
         "in_wash_window":  in_window,
         "wash_safe_date":  wash_safe,
-        "days_remaining":  max(0, days_rem),
+        "days_remaining":  days_rem,
     }
 
 
