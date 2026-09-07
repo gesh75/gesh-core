@@ -7,9 +7,29 @@ relative ``from .indicators import atr`` resolves inside the package).
 """
 from __future__ import annotations
 
+import importlib
+
 import numpy as np
+import pytest
 
 from gesh_core.trading import indicators, levels
+
+_ATR_ENV_KEYS = (
+    "EQUITY_ATR_PERIOD",
+    "EQUITY_ATR_STOP_MULT",
+    "EQUITY_MIN_STOP_PCT",
+    "EQUITY_MAX_STOP_PCT",
+    "EQUITY_ATR_TARGET_MULT",
+)
+
+
+def _reload_levels(monkeypatch: pytest.MonkeyPatch, **env: str) -> object:
+    """Re-import levels with ATR knobs set (or cleared) so import-time parse runs."""
+    for key in _ATR_ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    return importlib.reload(levels)
 
 
 def test_modules_load_from_gesh_core():
@@ -68,3 +88,61 @@ def test_atr_buy_levels_unchanged_by_floor():
     stop, target = levels._atr_levels("BUY", 100.0, 1.0)
     assert stop == 97.0                                    # 3*ATR clamped to [3%,15%]
     assert target == 105.0                                 # 5*ATR
+
+
+# ─── import-time ATR env parse (must not crash the stop ladder) ───────────────
+
+
+@pytest.fixture
+def restore_levels_env(monkeypatch: pytest.MonkeyPatch):
+    """Every ATR-env test reloads the module; put defaults back afterward."""
+    yield
+    _reload_levels(monkeypatch)
+
+
+@pytest.mark.parametrize(
+    "env",
+    [
+        {"EQUITY_ATR_PERIOD": ""},
+        {"EQUITY_ATR_STOP_MULT": ""},
+        {"EQUITY_MIN_STOP_PCT": ""},
+        {"EQUITY_MAX_STOP_PCT": ""},
+        {"EQUITY_ATR_TARGET_MULT": ""},
+        {"EQUITY_ATR_PERIOD": "10.0"},  # int() rejects floats; do not truncate to 10
+        {"EQUITY_ATR_PERIOD": "nope"},
+        {"EQUITY_ATR_PERIOD": "0"},
+        {"EQUITY_ATR_PERIOD": "-3"},
+        {"EQUITY_ATR_STOP_MULT": "nan"},
+        {"EQUITY_ATR_STOP_MULT": "inf"},
+        {"EQUITY_MIN_STOP_PCT": "-inf"},
+        {"EQUITY_ATR_TARGET_MULT": "NaN"},
+    ],
+)
+def test_empty_or_junk_atr_env_keeps_validated_defaults(env, monkeypatch, restore_levels_env):
+    mod = _reload_levels(monkeypatch, **env)
+    assert mod.EQUITY_ATR_PERIOD == 14
+    assert mod.EQUITY_ATR_STOP_MULT == 3.0
+    assert mod.EQUITY_MIN_STOP_PCT == 0.03
+    assert mod.EQUITY_MAX_STOP_PCT == 0.15
+    assert mod.EQUITY_ATR_TARGET_MULT == 5.0
+    # Import surviving is the load-bearing assertion: empty launchd values
+    # used to raise ValueError here and skip the entire stop ladder.
+    stop, target = mod._derive_levels("BUY", 100.0, None, None, atr_value=None, symbol=None)
+    assert stop == 95.0
+    assert target == 112.0
+
+
+def test_valid_atr_env_still_honored(monkeypatch, restore_levels_env):
+    mod = _reload_levels(
+        monkeypatch,
+        EQUITY_ATR_PERIOD="10",
+        EQUITY_ATR_STOP_MULT="2.5",
+        EQUITY_MIN_STOP_PCT="0.04",
+        EQUITY_MAX_STOP_PCT="0.12",
+        EQUITY_ATR_TARGET_MULT="4.0",
+    )
+    assert mod.EQUITY_ATR_PERIOD == 10
+    assert mod.EQUITY_ATR_STOP_MULT == 2.5
+    assert mod.EQUITY_MIN_STOP_PCT == 0.04
+    assert mod.EQUITY_MAX_STOP_PCT == 0.12
+    assert mod.EQUITY_ATR_TARGET_MULT == 4.0
