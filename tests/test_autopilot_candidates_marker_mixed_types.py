@@ -6,6 +6,7 @@ restores nothing. Restore already drops non-str list items — the crash is only
 on serialize. Pin that so a later coerce/skip cannot silently change the
 handoff contract.
 """
+
 from __future__ import annotations
 
 import json

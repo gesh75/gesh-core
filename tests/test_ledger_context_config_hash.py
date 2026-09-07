@@ -5,6 +5,7 @@ Different hashes must fork ``ctx_*``; ``None`` and omitted must match.
 Pin that so config drift cannot reuse a decision identity. ``extra_versions``
 sensitivity is already claimed elsewhere.
 """
+
 from __future__ import annotations
 
 from gesh_core.ledger.hashes import analysis_context_hash

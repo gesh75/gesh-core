@@ -5,6 +5,7 @@ bypass the conviction floor and let sub-threshold longs through. SELL remains
 ungated. Pin the current exact-match so a later casefold cannot silently start
 blocking exits.
 """
+
 from __future__ import annotations
 
 import pytest

@@ -6,6 +6,7 @@ branch and emits a valid HOLD — no crash, no gate rejection, just a missed
 entry. Pin the current mapping so a later strip is reviewable and cannot
 silently start treating padded SELL as an exit.
 """
+
 from __future__ import annotations
 
 import pytest

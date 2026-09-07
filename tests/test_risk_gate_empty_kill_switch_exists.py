@@ -6,6 +6,7 @@ the kill-switch gate fires on every run with no file to delete. Pin the
 ``_kill_switch_present`` side of that contract; config-blank persistence is
 already claimed elsewhere.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

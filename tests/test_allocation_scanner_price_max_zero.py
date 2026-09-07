@@ -6,6 +6,7 @@ The upper bound applies only when ``price_max > 0`` and the timeframe is in
 names. Intraday modes never apply the ceiling. Pin that so a later treat-0-as-
 default cannot silently start blocking large-caps in ``stock`` mode.
 """
+
 from __future__ import annotations
 
 import json

@@ -6,6 +6,7 @@ cumulative equity is 0 and the ratio is ``0/0`` → NaN. That NaN is then
 halt/delisting-style bar after a gain is a finite ``-100%`` — only the
 zero running-max path is the JSON hazard. Pin both.
 """
+
 from __future__ import annotations
 
 import math

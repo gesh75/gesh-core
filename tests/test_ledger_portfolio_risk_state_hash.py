@@ -5,6 +5,7 @@ ECG / risk-gate posture is hashed into ``ps_*``. A COOLING vs missing
 ``None`` and omitted default are the same. Pin that so a later exclusion
 cannot silently reuse recommendation IDs across a posture change.
 """
+
 from __future__ import annotations
 
 from gesh_core.ledger.hashes import portfolio_snapshot_hash

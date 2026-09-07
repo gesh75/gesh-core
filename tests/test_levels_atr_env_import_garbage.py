@@ -5,11 +5,13 @@ module import. A bad plist entry therefore prevents paper stops, the EOD
 sweep, and tracker shims from loading — no flat-ladder fallback. Pin the
 crash so a later fail-open parse cannot silently start using defaults.
 """
+
 from __future__ import annotations
 
 import os
 import subprocess
 import sys
+
 
 def _import_levels(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     merged = os.environ.copy()

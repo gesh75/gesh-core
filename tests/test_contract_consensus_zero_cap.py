@@ -6,6 +6,7 @@ target — not a zero-weight BUY. A misconfigured ``MAX_POSITION_PCT=0``
 therefore consumes gate/audit capacity while sizing to a no-op. Pin that
 so a later reject-zero change is reviewable.
 """
+
 from __future__ import annotations
 
 import pytest

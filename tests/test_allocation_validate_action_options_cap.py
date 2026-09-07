@@ -5,6 +5,7 @@ by the $2000 options cap even though it is under the $5000 stock cap, and the
 reason string must say ``options``. Pin the branch so a later shared-cap
 refactor cannot silently let options through the stock gate.
 """
+
 from __future__ import annotations
 
 import json

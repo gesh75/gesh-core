@@ -5,7 +5,10 @@ unknown, or empty TIF values therefore pass the contract and can reach the
 broker layer undetected. Pin the current hole so a later enum check cannot
 silently start rejecting historical JSON that used ``DAY``.
 """
+
 from __future__ import annotations
+
+import pytest
 
 from gesh_core.trading.contract import TradeIntent, manual
 

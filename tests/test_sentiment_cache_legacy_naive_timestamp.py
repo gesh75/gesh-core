@@ -5,6 +5,7 @@ aware/naive subtraction never raises. A 30-minute-old naive entry stays
 fresh; a 91-minute-old naive entry is stale. Pin that so a later reject-
 naive change cannot force a refetch storm on leftover on-disk caches.
 """
+
 from __future__ import annotations
 
 import json

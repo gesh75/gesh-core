@@ -6,6 +6,7 @@ negative ``optimal_pct``, and ``_classify_action`` only treats *exact zero*
 as AVOID — so a negative target can classify as TRIM. Pin helper + env
 path so a later floor-at-zero cannot silently drop inverted dollar deltas.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -43,8 +44,7 @@ def test_negative_gross_env_inverts_overbet_book(monkeypatch) -> None:
     monkeypatch.setenv("KELLY_MAX_GROSS_PCT", "-0.50")
 
     holdings = [
-        {"symbol": s, "equity": 1000, "average_buy_price": 10, "current_price": 12}
-        for s in drifts
+        {"symbol": s, "equity": 1000, "average_buy_price": 10, "current_price": 12} for s in drifts
     ]
     out = run_kelly_analysis(holdings, total_portfolio=100_000)
     assert out["gross_scale_factor"] < 0

@@ -5,6 +5,7 @@ snapshot therefore produces a more-negative post-trade estimate on BUY and
 leaves SELL unchanged. Paper still ignores the real cash. Pin the current
 arithmetic so a later clamp cannot silently change who the floor blocks.
 """
+
 from __future__ import annotations
 
 import pytest

@@ -6,6 +6,7 @@ shares. A stale $0 quote or a 0-share lot therefore vanishes — not
 must still surface. Pin the silent skip so a later status row cannot
 silently start counting these as harvestable.
 """
+
 from __future__ import annotations
 
 import pytest

@@ -5,6 +5,7 @@ Invalid prices are filtered with a warning. A remaining row still requires
 therefore drops the good rows too (transaction rollback). Pin the crash so
 a later per-row skip cannot silently start writing a partial ECG history.
 """
+
 from __future__ import annotations
 
 import pytest
