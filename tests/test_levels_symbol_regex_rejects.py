@@ -4,6 +4,7 @@ The ASCII ticker regex is the only host-side guard that keeps garbage
 symbols off Yahoo. A miss must return None and must not call fetch_ohlcv
 (or populate the per-day cache).
 """
+
 from __future__ import annotations
 
 import pytest

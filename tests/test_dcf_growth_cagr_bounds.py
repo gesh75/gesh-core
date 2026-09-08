@@ -5,6 +5,7 @@ year would explode FCF. A shrinking name (100→50) has CAGR −50%, which is
 floored at terminal — the model never projects contraction. Both bounds
 are load-bearing methodology guards.
 """
+
 from __future__ import annotations
 
 import pytest

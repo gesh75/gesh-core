@@ -5,6 +5,7 @@ falsy, so ``cbm.get(ticker) or pos.get(...)`` falls through to the position
 basis instead of recording NO_COST_BASIS. Pin both so a later fail-closed
 change is reviewable and a silent `or 0` cannot hide a real loss.
 """
+
 from __future__ import annotations
 
 import pytest

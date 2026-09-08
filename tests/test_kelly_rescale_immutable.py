@@ -4,6 +4,7 @@ The reconciliation overlay must not mutate the per-name Kelly row (dashboard
 and audit both keep the pre-haircut number). Action/color must follow the
 scaled optimal_pct, not the pre-overlay band.
 """
+
 from __future__ import annotations
 
 import pytest

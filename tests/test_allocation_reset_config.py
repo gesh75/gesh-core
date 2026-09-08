@@ -4,6 +4,7 @@ A live-execution flip (auto_trade=True) must not survive a reset, and the
 module-level defaults must stay pristine so the next load_config cannot
 inherit a stamped last_updated or a raised cap.
 """
+
 from __future__ import annotations
 
 import json

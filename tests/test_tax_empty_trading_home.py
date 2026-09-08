@@ -4,6 +4,7 @@ Distinct from an empty GESH_TRACKER_DB (which is truthy and would be used
 as the path). A launchd plist that sets TRADING_HOME="" must not resolve
 to ``/gesh_financial.db``.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

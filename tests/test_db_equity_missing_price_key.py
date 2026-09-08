@@ -4,6 +4,7 @@
 not persist a $0 ECG row. Sibling valid holdings in the same snapshot
 must still write.
 """
+
 from __future__ import annotations
 
 from gesh_core import db

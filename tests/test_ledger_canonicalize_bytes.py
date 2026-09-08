@@ -5,6 +5,7 @@ fail closed (CanonicalizationError) rather than hashing repr() or
 silently dropping the field. Distinct from the dataclass/pydantic object
 adapters already claimed elsewhere.
 """
+
 from __future__ import annotations
 
 import pytest

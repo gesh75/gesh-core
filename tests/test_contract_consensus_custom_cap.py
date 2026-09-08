@@ -4,6 +4,7 @@ Main tests only pin the 2% default. A host that passes a different
 max_position_pct (or 0.0) must keep the 1.0 / 0.5 ratio, and SELL must
 still close to 0 rather than inherit the cap.
 """
+
 from __future__ import annotations
 
 import pytest

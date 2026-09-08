@@ -5,6 +5,7 @@ Main tests pin worst-wins SUSPENDED. A book with only a −9% drawdown
 dashboard cannot stay HEALTHY while a name is already in the cooling
 circuit-breaker.
 """
+
 from __future__ import annotations
 
 from gesh_core import ecg

@@ -5,6 +5,7 @@ fallback), these three env vars are raw strings. A typo becomes the
 effective session window / zone name. Pin that so a later validator is
 reviewable and so empty-string handling stays distinct (claimed elsewhere).
 """
+
 from __future__ import annotations
 
 from gesh_core.trading.config import load_risk_config

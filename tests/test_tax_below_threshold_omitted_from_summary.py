@@ -4,6 +4,7 @@ get_harvest_summary only buckets ELIGIBLE / IN_WASH_WINDOW / NO_COST_BASIS.
 A small realized-unrealised loss must not inflate eligible_count or the
 harvestable total — and must not vanish from scan_tax_loss_candidates.
 """
+
 from __future__ import annotations
 
 import pytest

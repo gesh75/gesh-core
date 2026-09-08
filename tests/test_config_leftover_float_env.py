@@ -5,6 +5,7 @@ were not in the nonfinite-cap characterization. Garbage must fall back to
 the ultra-conservative default so a typo cannot flip the CASH_FLOOR or
 raise the confidence floor to NaN.
 """
+
 from __future__ import annotations
 
 import pytest

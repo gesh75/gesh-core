@@ -4,6 +4,7 @@ Dropping the size field must not collide with an explicit zero position —
 that would let an empty book share a portfolio snapshot hash with a
 closed-out name and hide a real position change from the audit trail.
 """
+
 from __future__ import annotations
 
 from gesh_core.ledger.hashes import portfolio_snapshot_hash

@@ -4,6 +4,7 @@ A consensus row without active_nodes/total_nodes still builds an intent.
 The rationale must keep the None placeholders so a host cannot later
 treat "0/11" as a real participation reading.
 """
+
 from __future__ import annotations
 
 from gesh_core.trading.contract import from_consensus

@@ -4,6 +4,7 @@ HOLD does not *require* a target, but validate() does not reject one either.
 A consensus adapter that later starts attaching a residual weight to HOLD
 must not start failing the risk gate solely because the field is present.
 """
+
 from __future__ import annotations
 
 from gesh_core.trading.contract import TradeIntent

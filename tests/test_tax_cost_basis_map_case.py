@@ -5,6 +5,7 @@ position ticker is ``AAPL`` / ``aapl``. The uppercase map key is the one
 that actually applies. Pin the case fold so harvest eligibility cannot
 drift if a host starts passing mixed-case maps.
 """
+
 from __future__ import annotations
 
 import pytest

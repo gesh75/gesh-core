@@ -4,6 +4,7 @@ record_harvest stores ticker.upper(). get_wash_status must resolve "fff"
 to the "FFF" window so a host that passes the broker's display case cannot
 re-buy inside the IRS window.
 """
+
 from __future__ import annotations
 
 import pytest
