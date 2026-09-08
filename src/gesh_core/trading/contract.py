@@ -127,8 +127,9 @@ def from_consensus(
         f"active_nodes={consensus_row.get('active_nodes')}/{consensus_row.get('total_nodes')}"
     )
 
+    raw_symbol = consensus_row["symbol"]
     return TradeIntent(
-        symbol=consensus_row["symbol"],
+        symbol=raw_symbol.upper() if isinstance(raw_symbol, str) else raw_symbol,
         action=action,
         confidence=confidence,
         source="consensus",

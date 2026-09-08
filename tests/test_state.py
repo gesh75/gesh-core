@@ -362,6 +362,60 @@ def test_paper_realized_pnl_ignores_other_days():
     assert state.paper_realized_pnl_usd_today() == 0.0
 
 
+def test_paper_open_positions_nets_mixed_case_symbols():
+    """BUY aapl + SELL AAPL must close the book.
+
+    stop_sweep_intent uppercases the ticker; from_consensus used to preserve
+    vendor casing. A case-sensitive book treated the emergency SELL as a
+    different symbol and left a phantom long (qty=0 close).
+    """
+    state.init_trading_tables()
+    iid = state.log_intent({"symbol": "aapl", "action": "BUY", "confidence": 1.0, "source": "c"})
+    state.log_order(
+        iid, None, "paper", "buy-lc", "SIMULATED", "aapl", "BUY",
+        qty=10, target_price=100.0, fill_price=100.0, fill_qty=10,
+    )
+    state.log_order(
+        iid, None, "paper", "sell-uc", "SIMULATED", "AAPL", "SELL",
+        qty=10, target_price=90.0, fill_price=90.0, fill_qty=10,
+    )
+    assert state.paper_open_positions() == {}
+
+
+def test_paper_open_positions_reconstructs_average_cost():
+    state.init_trading_tables()
+    iid = state.log_intent({"symbol": "NVDA", "action": "BUY", "confidence": 1.0, "source": "c"})
+    state.log_order(
+        iid, None, "paper", "b1", "SIMULATED", "NVDA", "BUY",
+        qty=10, target_price=100.0, fill_price=100.0, fill_qty=10,
+    )
+    state.log_order(
+        iid, None, "paper", "b2", "SIMULATED", "nvda", "BUY",
+        qty=10, target_price=200.0, fill_price=200.0, fill_qty=10,
+    )
+    book = state.paper_open_positions()
+    assert book["NVDA"]["qty"] == pytest.approx(20.0)
+    assert book["NVDA"]["avg_cost"] == pytest.approx(150.0)
+
+
+def test_deactivate_stops_matches_legacy_lowercase_rows():
+    state.init_trading_tables()
+    sid = state.record_stop("hood", 50.0, 47.5)
+    assert sid > 0
+    assert "HOOD" in state.active_stops()
+    # Simulate a pre-fix row that was persisted in vendor case.
+    with state._conn() as con:
+        con.execute(
+            "INSERT INTO paper_stops "
+            "(created_at, symbol, entry_price, stop_price, active) "
+            "VALUES ('2026-09-01T00:00:00+00:00', 'brk.b', 300.0, 285.0, 1)"
+        )
+    assert "BRK.B" in state.active_stops()
+    state.deactivate_stops("HOOD")
+    state.deactivate_stops("Brk.B")
+    assert state.active_stops() == {}
+
+
 def test_count_orders_includes_error_by_default():
     # Broker/network ERROR rows consume the cap because the failure may have
     # occurred after the broker accepted the order.

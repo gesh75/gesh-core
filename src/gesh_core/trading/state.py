@@ -460,7 +460,11 @@ def paper_open_positions() -> dict[str, dict[str, float]]:
 
     book: dict[str, dict[str, float]] = {}
     for r in rows:
-        sym = r["symbol"]
+        # Tickers are case-insensitive. from_consensus historically preserved
+        # vendor casing while stop_sweep_intent uppercases, so a BUY "aapl" and
+        # SELL "AAPL" must net — otherwise the close is ignored and the paper
+        # book keeps a phantom long (SELL sizing against the book then sees qty=0).
+        sym = str(r["symbol"]).upper()
         qty = float(r["fill_qty"] or 0.0)
         price = float(r["fill_price"] or 0.0)
         if qty <= 0:
@@ -508,7 +512,7 @@ def record_stop(
             (
                 _now(),
                 order_row_id,
-                symbol,
+                str(symbol).upper(),
                 entry_price,
                 stop_price,
                 take_profit_price,
@@ -524,15 +528,16 @@ def active_stops() -> dict[str, dict[str, Any]]:
         rows = con.execute(
             "SELECT * FROM paper_stops WHERE active = 1 ORDER BY id",
         ).fetchall()
-    return {r["symbol"]: dict(r) for r in rows}  # later rows win per symbol
+    # Canonical ticker case so a stop recorded as "hood" is found as "HOOD".
+    return {str(r["symbol"]).upper(): dict(r) for r in rows}  # later rows win per symbol
 
 
 def deactivate_stops(symbol: str) -> None:
     """Retire all active stops for a symbol (position fully closed)."""
     with _conn() as con:
         con.execute(
-            "UPDATE paper_stops SET active = 0 WHERE symbol = ? AND active = 1",
-            (symbol,),
+            "UPDATE paper_stops SET active = 0 WHERE upper(symbol) = ? AND active = 1",
+            (str(symbol).upper(),),
         )
 
 
