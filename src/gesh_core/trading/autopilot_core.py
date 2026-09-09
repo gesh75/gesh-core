@@ -16,6 +16,7 @@ is live and accumulating the autonomy-gate sample.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Iterable
 
 from .contract import TradeIntent
@@ -30,9 +31,14 @@ def entry_floor_blocks(action: str, raw_score: float, min_entry_score: float) ->
     Consensus `confidence` is DATA COVERAGE (nodes-voted fraction), not signal
     strength — alone it let near-coin-flip weighted scores trade. The floor
     gates BUYs on the consensus raw_score instead. SELL is a managed exit and
-    is NEVER gated; HOLD never reaches execution.
+    is NEVER gated; HOLD never reaches execution. Non-finite scores fail closed
+    (NaN/inf comparisons are always False, which would otherwise skip the floor).
     """
-    return action == "BUY" and raw_score < min_entry_score
+    if action != "BUY":
+        return False
+    if not (math.isfinite(raw_score) and math.isfinite(min_entry_score)):
+        return True
+    return raw_score < min_entry_score
 
 
 def candidates_marker_json(symbols: Iterable[str], today_et: str) -> str:
