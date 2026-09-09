@@ -90,6 +90,37 @@ def test_garbage_env_falls_back(monkeypatch):
     assert load_risk_config().max_daily_loss_pct == 0.01
 
 
+@pytest.mark.parametrize("token", ("nan", "NaN", "inf", "+inf", "-inf", "Infinity"))
+def test_nonfinite_env_falls_back_to_defaults(monkeypatch, token):
+    """launchd/.env can persist nan/inf; those must not disable safety caps.
+
+    `0.4 < nan` and `0.03 > inf` are both False, so a parsed NaN/Inf
+    min_confidence / max_position_pct / max_daily_loss_pct would let a LIVE
+    order through the corresponding gate.
+    """
+    monkeypatch.setenv("MIN_CONFIDENCE", token)
+    monkeypatch.setenv("MAX_POSITION_PCT", token)
+    monkeypatch.setenv("MAX_DAILY_LOSS_PCT", token)
+    monkeypatch.setenv("MIN_CASH_BUFFER_USD", token)
+    monkeypatch.setenv("MIN_ENTRY_SCORE", token)
+    monkeypatch.setenv("PAPER_CASH_USD", token)
+    cfg = load_risk_config()
+    assert cfg.min_confidence == 0.75
+    assert cfg.max_position_pct == 0.02
+    assert cfg.max_daily_loss_pct == 0.01
+    assert cfg.min_cash_buffer_usd == 500.0
+    assert cfg.min_entry_score == 0.35
+    assert cfg.paper_cash_usd == 100_000.0
+
+
+def test_nonfinite_min_confidence_would_fail_open_without_the_guard(monkeypatch):
+    """Characterization: IEEE comparisons against NaN never trip a 'too low' gate."""
+    assert not (0.10 < float("nan"))
+    monkeypatch.setenv("MIN_CONFIDENCE", "nan")
+    cfg = load_risk_config()
+    assert 0.10 < cfg.min_confidence
+
+
 def test_paper_mode_env_parsing(monkeypatch):
     """Compatibility test for the strict PAPER_MODE contract (updated per P0-B).
 
