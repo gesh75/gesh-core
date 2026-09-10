@@ -10,7 +10,7 @@ import pytest
 
 from gesh_core.trading import risk_gate_core as rgc
 from gesh_core.trading.config import RiskConfig
-from gesh_core.trading.contract import manual
+from gesh_core.trading.contract import TradeIntent, manual
 from gesh_core.trading.risk_gate_core import (
     GateVerdict,
     _kill_switch_present,
@@ -71,3 +71,42 @@ def test_sell_returns_cash_unchanged():
     cfg = RiskConfig(paper_mode=False)
     intent = manual("NVDA", "SELL", target_position_pct=0.0)
     assert _post_trade_cash_estimate(_pf(cash=7_777.0, equity=50_000.0), intent, cfg) == pytest.approx(7_777.0)
+
+
+def test_live_missing_equity_summary_treats_cash_and_equity_as_zero():
+    cfg = RiskConfig(paper_mode=False)
+    intent = manual("NVDA", "BUY", target_position_pct=0.02)
+    assert _post_trade_cash_estimate({}, intent, cfg) == pytest.approx(0.0)
+
+
+def test_paper_uses_simulated_cash_when_snapshot_is_empty():
+    cfg = RiskConfig(paper_mode=True, paper_cash_usd=100_000.0)
+    intent = manual("NVDA", "BUY", target_position_pct=0.10)
+    # No book at all: equity is 0 so spend is 0; paper cash is still the source.
+    assert _post_trade_cash_estimate({}, intent, cfg) == pytest.approx(100_000.0)
+
+
+def test_paper_ignores_missing_live_cash_when_equity_present():
+    cfg = RiskConfig(paper_mode=True, paper_cash_usd=100_000.0)
+    intent = manual("NVDA", "BUY", target_position_pct=0.10)
+    snapshot = {"equity_summary": {"portfolio_equity": 50_000.0}}
+    # 100_000 - 0.10*50_000 = 95_000. Absent live cash must not starve paper.
+    assert _post_trade_cash_estimate(snapshot, intent, cfg) == pytest.approx(95_000.0)
+
+
+def test_buy_without_target_does_not_spend_cash():
+    cfg = RiskConfig(paper_mode=False)
+    intent = TradeIntent(symbol="NVDA", action="BUY", confidence=1.0, source="m")
+    post = _post_trade_cash_estimate(_pf(cash=10_000.0, equity=50_000.0), intent, cfg)
+    assert post == pytest.approx(10_000.0)
+
+
+def test_none_cash_coerces_to_zero_in_live():
+    cfg = RiskConfig(paper_mode=False)
+    intent = manual("NVDA", "SELL", target_position_pct=0.0)
+    post = _post_trade_cash_estimate(
+        {"equity_summary": {"cash": None, "portfolio_equity": 50_000.0}},
+        intent,
+        cfg,
+    )
+    assert post == pytest.approx(0.0)

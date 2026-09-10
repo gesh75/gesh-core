@@ -311,19 +311,8 @@ def kelly_size_holding(
     delta_usd = recommended_usd - current_equity
     delta_pct = (final_pct - current_pct) * 100
 
-    # Signal
-    if final_pct == 0:
-        action = "AVOID"
-        action_color = "red"
-    elif current_pct > final_pct * 1.3:
-        action = "TRIM"
-        action_color = "yellow"
-    elif current_pct < final_pct * 0.6:
-        action = "ADD"
-        action_color = "green"
-    else:
-        action = "HOLD"
-        action_color = "cyan"
+    # Signal — same bands as portfolio rescale (TRIM >1.3×, ADD <0.6×, inclusive HOLD).
+    action, action_color = _classify_action(current_pct, final_pct)
 
     # PnL
     pnl_pct = ((current_price - avg_cost) / avg_cost * 100) if avg_cost > 0 else 0
@@ -356,7 +345,11 @@ def kelly_size_holding(
     }
 
 def _classify_action(current_pct: float, final_pct: float) -> tuple[str, str]:
-    """(action, color) from current vs target weight — mirrors kelly_size_holding."""
+    """(action, color) from current vs target weight.
+
+    Shared by ``kelly_size_holding`` and ``_rescale_result``. Scale-invariant
+    as long as both arguments use the same unit (fraction or percent).
+    """
     if final_pct == 0:
         return "AVOID", "red"
     if current_pct > final_pct * 1.3:

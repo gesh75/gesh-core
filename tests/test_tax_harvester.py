@@ -7,6 +7,7 @@ GESH_TRACKER_DB so the real gesh_financial.db is never touched.
 from __future__ import annotations
 
 import sqlite3
+from datetime import date, timedelta
 
 import pytest
 
@@ -130,6 +131,87 @@ def test_harvested_position_flagged_in_wash_window():
 def test_unknown_ticker_no_wash_window():
     assert th.get_wash_status("ZZZ") == {
         "in_wash_window": False, "wash_safe_date": None, "days_remaining": 0}
+
+
+def test_wash_window_expires_on_and_after_safe_date():
+    """IRS window is exclusive of wash_safe_date: today == safe date is clear."""
+    th.record_harvest("EXP", sale_price=10.0, loss_usd=600.0)
+    today = date.today().isoformat()
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    with th._get_conn() as conn:
+        conn.execute(
+            "UPDATE wash_sale_log SET wash_safe_date = ? WHERE ticker = ?",
+            (today, "EXP"),
+        )
+    status = th.get_wash_status("EXP")
+    assert status["in_wash_window"] is False
+    assert status["days_remaining"] == 0
+    assert status["wash_safe_date"] == today
+
+    with th._get_conn() as conn:
+        conn.execute(
+            "UPDATE wash_sale_log SET wash_safe_date = ? WHERE ticker = ?",
+            (yesterday, "EXP"),
+        )
+    status = th.get_wash_status("EXP")
+    assert status["in_wash_window"] is False
+    assert status["days_remaining"] == 0
+
+
+def test_expired_wash_window_does_not_block_a_new_eligible_loss():
+    th.record_harvest("CLR", sale_price=80.0, loss_usd=400.0)
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    with th._get_conn() as conn:
+        conn.execute(
+            "UPDATE wash_sale_log SET wash_safe_date = ? WHERE ticker = ?",
+            (yesterday, "CLR"),
+        )
+    positions = {"CLR": {"price": 80.0, "quantity": 20, "average_buy_price": 120.0}}
+    rec = th.scan_tax_loss_candidates(positions)[0]
+    assert rec["status"] == "ELIGIBLE"
+    assert rec["in_wash_window"] is False
+
+
+def test_latest_harvest_wins_over_an_expired_row():
+    th.record_harvest("LAT", sale_price=10.0, loss_usd=100.0)
+    old_safe = (date.today() - timedelta(days=1)).isoformat()
+    with th._get_conn() as conn:
+        conn.execute(
+            "UPDATE wash_sale_log SET wash_safe_date = ?, created_at = ? WHERE ticker = ?",
+            (old_safe, "2020-01-01T00:00:00", "LAT"),
+        )
+    th.record_harvest("LAT", sale_price=9.0, loss_usd=200.0)
+    status = th.get_wash_status("LAT")
+    assert status["in_wash_window"] is True
+    assert status["days_remaining"] == th.WASH_SALE_DAYS
+
+
+def test_harvest_ticker_is_normalized_to_uppercase():
+    th.record_harvest("amd", sale_price=10.0, loss_usd=600.0)
+    status = th.get_wash_status("AMD")
+    assert status["in_wash_window"] is True
+
+
+def test_shares_alias_accepted_when_quantity_absent():
+    positions = {"SSS": {"price": 80.0, "shares": 20, "average_buy_price": 120.0}}
+    rec = th.scan_tax_loss_candidates(positions)[0]
+    assert rec["shares"] == 20.0
+    assert rec["status"] == "ELIGIBLE"
+
+
+@pytest.mark.parametrize("price,quantity", [(0.0, 10.0), (-5.0, 10.0), (10.0, 0.0), (10.0, -1.0)])
+def test_non_positive_price_or_shares_are_skipped(price, quantity):
+    positions = {"BAD": {"price": price, "quantity": quantity, "average_buy_price": 100.0}}
+    assert th.scan_tax_loss_candidates(positions) == []
+
+
+def test_zero_cost_basis_is_surfaced_not_treated_as_free_shares():
+    """`if not _cb` treats 0 as missing — a $0 basis must not fabricate a loss."""
+    positions = {"ZZB": {"price": 10.0, "quantity": 5, "average_buy_price": 0}}
+    rec = th.scan_tax_loss_candidates(positions)[0]
+    assert rec["status"] == "NO_COST_BASIS"
+    assert rec["unrealised_loss_usd"] is None
+    assert rec["cost_basis"] is None
 
 
 # ─── get_harvest_summary ──────────────────────────────────────────────────────
