@@ -9,6 +9,7 @@ Flip PAPER_MODE=false ONLY after weeks of clean paper runs.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -20,13 +21,17 @@ from typing import Literal
 def _env_float(key: str, default: float) -> float:
     # Empty-string env (common in launchd plists / .env) falls back to default,
     # not a ValueError (product's more-robust parsing, now shared).
+    # Non-finite tokens (nan/inf) also fall back: they parse as floats, but
+    # every comparison against NaN is False, so a LIVE confidence / position /
+    # daily-loss / cash-floor gate would fail open.
     raw = os.getenv(key)
     if raw is None or raw == "":
         return default
     try:
-        return float(raw)
+        value = float(raw)
     except (TypeError, ValueError):
         return default
+    return value if math.isfinite(value) else default
 
 
 def _env_int(key: str, default: int) -> int:
