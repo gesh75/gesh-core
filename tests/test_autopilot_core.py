@@ -48,6 +48,11 @@ def test_malformed_marker_restores_nothing(raw):
     assert restore_candidate_symbols(raw, "2026-07-02") == []
 
 
+def test_restore_candidate_symbols_filters_non_strings_keeps_valid():
+    raw = json.dumps({"date": "2026-07-02", "symbols": [1, "NVDA", "", None, "hood"]})
+    assert restore_candidate_symbols(raw, "2026-07-02") == ["NVDA", "hood"]
+
+
 def test_marker_key_is_stable():
     assert CANDIDATE_MARKER == "premarket_candidates"  # persisted in job_markers
 

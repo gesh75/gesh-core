@@ -48,6 +48,15 @@ def test_connect_enables_wal(tmp_path):
         con.close()
 
 
+def test_connect_enables_foreign_keys_and_busy_timeout(tmp_path):
+    con = db.connect(str(tmp_path / "pragma.db"))
+    try:
+        assert con.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        assert con.execute("PRAGMA busy_timeout").fetchone()[0] == 30000
+    finally:
+        con.close()
+
+
 # ─── analysis round-trip + corruption tolerance (product) ─────────────────────
 
 def test_log_and_get_analysis():
@@ -91,6 +100,19 @@ def test_equity_snapshot_and_history():
     assert hist[0]["equity"] == 1000
     latest = db.get_all_latest_snapshots()
     assert any(r["symbol"] == "NVDA" for r in latest)
+
+
+def test_log_equity_snapshot_all_invalid_prices_inserts_nothing(capsys):
+    db.log_equity_snapshot(
+        [
+            {"symbol": "ZERO", "equity": 100, "current_price": 0},
+            {"symbol": "NAN", "equity": 200, "current_price": float("nan")},
+        ]
+    )
+    assert db.get_all_latest_snapshots() == []
+    warning = capsys.readouterr().out
+    assert "ZERO" in warning
+    assert "NAN" in warning
 
 
 def test_equity_snapshot_skips_invalid_prices_without_losing_valid_rows(capsys):

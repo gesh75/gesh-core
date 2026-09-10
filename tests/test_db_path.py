@@ -7,6 +7,7 @@ chain from the paper books and blinding the daily-loss circuit breaker.
 """
 from __future__ import annotations
 
+import logging
 import sqlite3
 from pathlib import Path
 
@@ -25,6 +26,15 @@ def test_cwd_default(tmp_path, monkeypatch):
     monkeypatch.delenv("GESH_DB_PATH", raising=False)
     monkeypatch.chdir(tmp_path)
     assert resolve_db_path() == tmp_path / "gesh_financial.db"
+
+
+def test_resolve_db_path_warns_when_cwd_creates_fresh_db(tmp_path, monkeypatch, caplog):
+    monkeypatch.delenv("GESH_DB_PATH", raising=False)
+    monkeypatch.chdir(tmp_path)
+    with caplog.at_level(logging.WARNING, logger="gesh_core.db_path"):
+        path = resolve_db_path()
+    assert path == tmp_path / "gesh_financial.db"
+    assert "created NEW state DB" in caplog.text
 
 
 def test_unusable_primary_fails_closed(tmp_path, monkeypatch):

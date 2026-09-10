@@ -116,6 +116,27 @@ def test_insufficient_history_is_healthy():
     assert "Insufficient history" in st["message"]
 
 
+def test_compute_ecg_cooling_message_uses_streak_when_drawdown_mild():
+    holdings = [{"symbol": "EEE", "equity": 97}]
+    out = ecg.compute_ecg(holdings, lambda s: _hist([100, 99, 98, 97]))
+    st = out["states"][0]
+    assert st["state"] == "COOLING"
+    assert st["loss_streak"] == 3
+    assert "3 consecutive losing snapshots" in st["message"]
+    assert "drawdown" not in st["message"]
+
+
+def test_compute_ecg_portfolio_gate_cooling_when_no_suspended():
+    holdings = [{"symbol": "OK", "equity": 110}, {"symbol": "WARM", "equity": 97}]
+
+    def hist(sym):
+        return _hist([100, 110]) if sym == "OK" else _hist([100, 99, 98, 97])
+
+    out = ecg.compute_ecg(holdings, hist)
+    assert out["portfolio_gate"] == "COOLING"
+    assert "1 holding(s) cooling" in out["portfolio_message"]
+
+
 def test_portfolio_gate_worst_state_wins():
     holdings = [{"symbol": "OK", "equity": 110}, {"symbol": "BAD", "equity": 70}]
     def hist(sym):

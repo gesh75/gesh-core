@@ -348,6 +348,58 @@ def test_adapter_symbol_rules(db_path: Path):
     assert "IBM" in held
 
 
+def test_adapter_zero_price_records_missing_quote(db_path: Path):
+    eng = _eng()
+    eng["holdings"][0]["current_price"] = 0
+    _record(db_path, eng=eng)
+    nvda = _mqs_row(db_path, "NVDA")
+    assert nvda["quality_state"] == "MISSING"
+    assert nvda["last"] is None
+    assert _mqs_row(db_path, "AAPL")["quality_state"] == "FRESH"
+
+
+def test_adapter_invalid_quote_as_of_raises(db_path: Path):
+    eng = _eng()
+    eng["run_manifest"]["quote_as_of"]["NVDA"] = "not-a-time"
+    with pytest.raises(LedgerValidationError):
+        _record(db_path, eng=eng)
+
+
+def test_adapter_advisory_action_truncated_to_32_chars(db_path: Path):
+    long_action = "consider adding a very long diversification sleeve now"
+    assert len(long_action.upper()) > 32
+    eng = _eng()
+    eng["ai_result"]["portfolio_recommendations"] = [
+        {
+            "action": long_action,
+            "priority": "medium",
+            "rationale": "sector balance",
+            "category": "DIVERSIFICATION",
+            "symbol": "AMD",
+        }
+    ]
+    result = _record(db_path, eng=eng)
+    amd = next(
+        _rec_row(db_path, rid)
+        for rid in result.recording.recommendation_ids
+        if _rec_row(db_path, rid)["symbol"] == "AMD"
+    )
+    assert amd["action"] == long_action.strip().upper()[:32]
+    assert len(amd["action"]) == 32
+
+
+def test_adapter_holdings_fallback_from_snapshot_only(db_path: Path):
+    eng = _eng()
+    holdings = eng.pop("holdings")
+    eng["snapshot"]["holdings"] = holdings
+    result = _record(db_path, eng=eng)
+    ps = get_portfolio_snapshot(
+        result.recording.portfolio_snapshot_id, tenant_id=TENANT, db_path=db_path
+    )
+    held = {h["symbol"] for h in json.loads(ps["holdings_json"])}
+    assert {"NVDA", "AAPL"} <= held
+
+
 def test_adapter_empty_universe_raises(db_path: Path):
     eng = _eng()
     eng["consensus"] = {}

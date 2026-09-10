@@ -90,6 +90,25 @@ def test_garbage_env_falls_back(monkeypatch):
     assert load_risk_config().max_daily_loss_pct == 0.01
 
 
+def test_load_risk_config_env_int_garbage_falls_back_to_default(monkeypatch):
+    monkeypatch.setenv("MAX_ORDERS_PER_DAY", "fifteen")
+    assert load_risk_config().max_orders_per_day == 3
+
+
+def test_load_risk_config_price_age_paper_and_live_defaults_and_env_override(monkeypatch):
+    monkeypatch.delenv("MAX_PRICE_AGE_SECONDS", raising=False)
+    monkeypatch.delenv("MAX_PRICE_AGE_SECONDS_PAPER", raising=False)
+    cfg = load_risk_config()
+    assert cfg.max_price_age_seconds == 300
+    assert cfg.max_price_age_seconds_paper == 1800
+
+    monkeypatch.setenv("MAX_PRICE_AGE_SECONDS", "120")
+    monkeypatch.setenv("MAX_PRICE_AGE_SECONDS_PAPER", "3600")
+    cfg = load_risk_config()
+    assert cfg.max_price_age_seconds == 120
+    assert cfg.max_price_age_seconds_paper == 3600
+
+
 def test_paper_mode_env_parsing(monkeypatch):
     """Compatibility test for the strict PAPER_MODE contract (updated per P0-B).
 

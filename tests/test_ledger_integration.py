@@ -536,6 +536,54 @@ def test_invalid_inputs_raise_validation_error(db_path: Path):
         )
 
 
+def test_record_analysis_decision_duplicate_decision_same_symbol_type_raises(db_path: Path):
+    decisions = [
+        DecisionInput(symbol="NVDA", decision_type="consensus", action="BUY"),
+        DecisionInput(symbol="nvda", decision_type="consensus", action="HOLD"),
+    ]
+    with pytest.raises(LedgerValidationError, match="duplicate decision"):
+        _record(db_path, decisions=decisions)
+
+
+def test_record_analysis_decision_non_finite_quote_bid_raises(db_path: Path):
+    quotes = [
+        QuoteInput(
+            symbol="NVDA",
+            retrieved_at="2026-07-20T09:00:00Z",
+            last=120.0,
+            bid=float("nan"),
+        )
+    ]
+    with pytest.raises(LedgerValidationError, match="bid"):
+        _record(db_path, quotes=quotes)
+
+
+def test_record_analysis_decision_empty_portfolio_captured_at_raises(db_path: Path):
+    portfolio = PortfolioInput(
+        holdings=[],
+        cash=0.0,
+        buying_power=0.0,
+        total_equity=0.0,
+        captured_at="",
+    )
+    with pytest.raises(LedgerValidationError, match="portfolio.captured_at"):
+        _record(db_path, portfolio=portfolio)
+
+
+def test_record_analysis_decision_risk_state_with_secret_raises(db_path: Path):
+    src = _portfolio()
+    portfolio = PortfolioInput(
+        holdings=src.holdings,
+        cash=src.cash,
+        buying_power=src.buying_power,
+        total_equity=src.total_equity,
+        captured_at=src.captured_at,
+        risk_state={"api_key": "sk-test"},
+    )
+    with pytest.raises(LedgerValidationError, match="secret field"):
+        _record(db_path, portfolio=portfolio)
+
+
 def test_duplicate_quote_symbol_rejected(db_path: Path):
     quotes = [
         QuoteInput(symbol="NVDA", retrieved_at="2026-07-20T09:00:00Z", last=1.0),
