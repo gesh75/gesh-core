@@ -4,6 +4,18 @@ All notable changes to this package are recorded here. Version strings are
 literals in `pyproject.toml`, `src/gesh_core/__init__.py`, and
 `tests/test_package_version.py` — bumping requires editing all three.
 
+## Unreleased
+
+### Docs
+
+- Added `docs/DCF.md` (public API, CLI, methodology, refusals, sensitivity).
+- Architecture markdown + HTML dashboards brought current to 0.8.2 (17 shared
+  surfaces, 329 tests, fail-closed `db_path`, two action vocabularies).
+- Env-var catalog and parser-family pitfalls (`trading.config` strict booleans
+  vs Kelly/ATR/sentiment import-time knobs).
+- CI runbook: Buildkite GHA `ulimit -n` raise (PR #46) so pytest+coverage does
+  not hit `EMFILE` on 3.13/3.14.
+
 ## 0.8.2 — 2026-08-22
 
 ### Fixed

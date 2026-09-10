@@ -1,7 +1,8 @@
 # gesh-core — Project Control
 
 > Canonical control document for this repository. Linked from [README.md](README.md).
-> **Verified 2026-08-22 against live GitHub.** Local-only claims are labelled as such.
+> **Verified 2026-09-07 against live GitHub** for this repo. Consumer-pin
+> claims that could not be re-fetched are labelled as such.
 
 ## Control header
 
@@ -9,20 +10,19 @@
 |---|---|
 | Repository | `gesh75/gesh-core` |
 | Remote | `https://github.com/gesh75/gesh-core.git` (private) |
-| Verified `main` (pre-0.8.2) | `97a519b75406abdc7b2be36d5633dd18c0f2c0b5` |
-| Verification timestamp | 2026-08-22, GitHub API against the live remote |
-| Declared version on `main` | `0.8.2` (`pyproject.toml` and `__init__.py` agree after this revision) |
-| Latest release tag | `v0.6.1` → peeled commit `f11c460f…` (**no tags for 0.7.0 / 0.8.0 / 0.8.1 / 0.8.2**) |
+| Verified `main` | `56f14d4e3a8fd527a9637cc7fb1ce2042c11aee0` |
+| Verification timestamp | 2026-09-07, GitHub API against the live remote |
+| Declared version on `main` | `0.8.2` (`pyproject.toml` and `__init__.py` agree) |
+| Latest release tag | `v0.6.1` → peeled commit `f11c460f628fea484c739b6ab25ea0e12c0c8f85` (**no tags for 0.7.0 / 0.8.0 / 0.8.1 / 0.8.2**) |
 | GitHub Releases | **none** |
-| Open PRs / issues | none at verification |
+| Open PRs | 34 open (32 drafts): coverage + fail-closed automations + stale docs PRs **#37** and **#57**. No issues queried. |
 | Runtime | none — this is a library; it has no service, scheduler or database of its own |
-| Last completed milestone | **PR #34** `fix(allocation): reject unhashable trade actions` (merged as `97a519b7`) |
-| Single next action | **Bump both consumer pins to this 0.8.2 SHA** (see §3). Then cut an annotated `v0.8.2` tag + GitHub Release so tag-followers stop installing 0.6.1. |
+| Last completed milestone | **PR #46** `ci: raise fd limit before pytest` (merged as `56f14d4e`, after 0.8.2 / PR #35). `main` unchanged since 2026-08-27. |
+| Single next action | **Bump both consumer pins to `56f14d4e`** (see §3). Then cut an annotated `v0.8.2` tag + GitHub Release so tag-followers stop installing 0.6.1. |
 
-> ⚠ **This document was stale from 2026-07-31 through 2026-08-22.** It still
-> claimed version `0.6.2`, SHA `a9342c08`, and "trading still pins symbolic tag
-> `v0.4.0`". Live truth at verification: version `0.8.1` on `97a519b7`, both
-> consumers already pin 40-char SHAs, trading's tag pin is gone.
+> Consumer pins below were last live-verified **2026-08-22**. This environment
+> still gets HTTP 404 on `gesh75/Gesh-Project` and `gesh75/gesh-project-trading` —
+> those values are **not** re-confirmed this run. Do not invent newer pins.
 
 ## 1. Current truth
 
@@ -50,9 +50,13 @@ Guarantees:
   `config_hash` over *name · source · parsed value · validation status* for the
   three variables, with `resolved_at` excluded from the hash.
 
-DCF (v0.7.0/v0.8.0) is measurement-only (rule #47). v0.8.2 adds the first
-in-repo characterization tests and discloses `capex_pct` / `nwc_pct` on every
-successful result.
+Other env knobs do **not** use this parser. See the catalog in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#environment-variables).
+
+DCF is measurement-only (rule #47). v0.8.2 added in-repo characterization tests
+(`tests/test_dcf.py`), disclosed `capex_pct` / `nwc_pct` on every successful
+result, and fail-closed named errors for empty-ratio / non-positive revenue
+(PR #35). See [`docs/DCF.md`](docs/DCF.md).
 
 ## 2. Architecture
 
@@ -73,20 +77,19 @@ Trust boundary: consumers import `gesh_core.*` directly, and both product repos
 alias their local modules onto it via `sys.modules[__name__] = _impl`,
 so **every module-level name here is reachable as `trading.config.X` downstream**.
 
-## 3. Consumers and their pins — GitHub-verified 2026-08-22
+## 3. Consumers and their pins — last GitHub-verified 2026-08-22
 
-| Consumer | Pin | Form | Status |
+| Consumer | Pin (2026-08-22) | Form | Status then |
 |---|---|---|---|
-| `gesh75/Gesh-Project` | `493123938a173d890c63655ea20410501bd8b9f0` (`v0.8.1`) | 40-char commit ✅ | 🟡 **1 commit behind `main`** — missing PR #34 (unhashable allocation actions). `requirements.txt` |
-| `gesh75/gesh-project-trading` | `33af7482c01b4950cab82ba5167e47146f048575` (`v0.8.0`) | 40-char commit ✅ | 🟡 **2 commits behind `main`** — missing v0.8.1 (vendor LICENSE in the wheel) **and** PR #34 |
+| `gesh75/Gesh-Project` | `493123938a173d890c63655ea20410501bd8b9f0` (`v0.8.1`) | 40-char commit ✅ | 🟡 behind then-`main` — missing PR #34 |
+| `gesh75/gesh-project-trading` | `33af7482c01b4950cab82ba5167e47146f048575` (`v0.8.0`) | 40-char commit ✅ | 🟡 behind then-`main` — missing v0.8.1 + PR #34 |
 
-The 2026-07-31 claim that trading still pinned symbolic tag `v0.4.0` is **obsolete**.
-Both consumers pin SHAs. The remaining risk is **lag**, not tag-following.
+This run **could not re-read** those `requirements.txt` files (GitHub API 404).
+If the 2026-08-22 pins are still in place they are now also missing 0.8.2
+(PR #35) and the CI fd-limit fix (PR #46). Re-verify before bumping.
 
-After this 0.8.2 lands, bump **both** pins to the merge SHA of this revision.
-Trading in particular still installs a wheel that drops `NOTICE.md` /
-`LICENSE-cookbooks` (the product repo's
-`test_vendored_code_keeps_its_licence_and_notice` would fail against that pin).
+After pins are confirmed, bump **both** to `56f14d4e`. Trading in particular
+must not stay on a wheel that drops `NOTICE.md` / `LICENSE-cookbooks`.
 
 ## 4. Milestones
 
@@ -97,40 +100,46 @@ Trading in particular still installs a wheel that drops `NOTICE.md` /
 | ✅ DONE | Decision ledger Phase 4A | schema + hash contracts + tenant isolation |
 | ✅ DONE | `gesh_core.dcf` v0.7.0 / methodology v0.8.0 / wheel LICENSE v0.8.1 | PRs #31–#33 |
 | ✅ DONE | Fail-closed hardening batch (PRs #12–#30, #34) | allocation, kelly, ledger, tax, ECG, ATR, CI token |
-| 🟡 ACTIVE | 0.8.2 DCF tests + control-doc refresh + CI import discovery | this revision |
-| ⬜ NEXT | Consumer pin bump (product + engine) to 0.8.2 SHA | dedicated PRs in those repos |
+| ✅ DONE | 0.8.2 DCF tests + fail-closed ratio/revenue + CI import discovery | PR #35 (`86d9e08`) |
+| ✅ DONE | CI fd-limit raise for Buildkite GHA EMFILE | PR #46 (`56f14d4e`) |
+| ⬜ NEXT | Consumer pin bump (product + engine) to `56f14d4e` | dedicated PRs in those repos; re-verify pins first |
 | ⬜ NEXT | Annotated tag `v0.8.2` + GitHub Release | so tag-followers stop at 0.6.1 |
 | ⬜ BACKLOG | Root LICENSE file (legal decision — not invented here) | owner call |
 | ⬜ BACKLOG | Split files over the 400-line copilot guideline (`ledger/integration` 618, `state` 550, `kelly` 544) | non-breaking extract |
 
 ## 5. Achievements (since last control refresh)
 
-- **PR #34 — unhashable trade actions.** Allocation gate rejects non-hashable actions fail-closed.
-- **PR #33 — vendor LICENSE in the wheel.** MIT attribution travels with the installed package.
-- **PR #32 — DCF methodology.** Operating NWC, Blume beta + fragility, average-ratio base, named refusals.
+- **PR #46 — CI fd limit.** pytest step raises `ulimit -n` so Buildkite 3.13/3.14
+  no longer die with `EMFILE` under coverage + sqlite fixtures.
+- **PR #35 — 0.8.2.** DCF characterization tests; empty-ratio / zero-revenue
+  fail closed; `capex_pct` / `nwc_pct` disclosed; CI import discovery.
+- **PR #34 — unhashable trade actions.** Allocation gate rejects non-hashable
+  actions fail-closed.
+- **PR #33 — vendor LICENSE in the wheel.** MIT attribution travels with the
+  installed package.
+- **PR #32 — DCF methodology.** Operating NWC, Blume beta + fragility,
+  average-ratio base, named refusals.
 - **PR #31 — `gesh_core.dcf`.** Shared deterministic valuation, measurement-only.
-- **PRs #12–#30 — fail-closed pass.** Wash-sale `/tmp` fallback removed, snapshot hash validation, nested-secret strip, Kelly haircuts, source spoofing, ATR amplification bound, ECG NaN, CI token lockdown.
+- **PRs #12–#30 — fail-closed pass.** Wash-sale `/tmp` fallback removed,
+  snapshot hash validation, nested-secret strip, Kelly haircuts, source
+  spoofing, ATR amplification bound, ECG NaN, CI token lockdown.
 
 ## 6. Blockers and risks
 
 | Sev | Item | Evidence | Unblock condition |
 |---|---|---|---|
-| HIGH | No Git tag / Release past `v0.6.1` | `gh api repos/gesh75/gesh-core/tags`; Releases list empty | cut `v0.8.2` after this lands; never move tags |
-| HIGH | Engine pin is two commits behind | `gesh-project-trading/requirements.txt` → `33af7482` (v0.8.0) | bump to 0.8.2 SHA; run engine suite |
-| MEDIUM | Product pin is one commit behind | `Gesh-Project/requirements.txt` → `49312393` (v0.8.1) | bump to 0.8.2 SHA |
-| MEDIUM | DCF had zero in-repo tests until 0.8.2 | no `tests/test_dcf.py` on `97a519b7` | this revision |
-| MEDIUM | Control docs lagged 3+ weeks | `PROJECT_CONTROL.md` still said 0.6.2 / trading `v0.4.0` | this revision |
+| HIGH | No Git tag / Release past `v0.6.1` | `gh api repos/gesh75/gesh-core/tags`; Releases list empty | cut `v0.8.2` after pin bump; never move tags |
+| HIGH | Engine / product pins not re-verified this run | consumer repos 404 from this environment | re-read `requirements.txt` when access exists; bump to `56f14d4e` |
+| MEDIUM | Many open draft PRs | 34 open / 32 drafts on 2026-09-07, including docs #37 and #57 | owner triage; do not merge from this docs pass |
 | LOW | No root LICENSE | tree has only `dcf/vendor/LICENSE-cookbooks` | owner decides SPDX; do not invent |
-| LOW | CI import list was a stale allow-list | omitted dcf/ledger/sentiment/market_fetch/autopilot | filesystem discovery in this revision |
 | LOW | Copilot 400-line guideline exceeded | `ledger/integration.py` 618, `state.py` 550, `kelly.py` 544 | extract, don't rewrite |
 
 ## 7. Execution queue
 
-1. Land 0.8.2 (this revision) — DCF tests, fail-closed ratio/revenue, disclosed capex/nwc, CI discovery, control docs.
-2. Bump `gesh-project-trading` pin `33af7482` → 0.8.2 SHA (wheel LICENSE + unhashable actions + DCF tests).
-3. Bump `Gesh-Project` pin `49312393` → 0.8.2 SHA.
-4. Cut annotated tag `v0.8.2` and a GitHub Release. Pin-by-SHA remains the rule.
-5. Decide a root LICENSE. Until then the package has no SPDX identifier.
+1. Re-verify consumer pins when those repos are readable.
+2. Bump `gesh-project-trading` and `Gesh-Project` to `56f14d4e`.
+3. Cut annotated tag `v0.8.2` and a GitHub Release. Pin-by-SHA remains the rule.
+4. Decide a root LICENSE. Until then the package has no SPDX identifier.
 
 **One writer per repository at a time.**
 
@@ -138,13 +147,13 @@ Trading in particular still installs a wheel that drops `NOTICE.md` /
 
 | Claim | Evidence |
 |---|---|
-| `main` = `97a519b7` before this revision | GitHub contents SHA, 2026-08-22 |
-| CI green on that head | Actions run `31493540985`, `head_sha=97a519b7`, conclusion `success` |
-| Product pin | `Gesh-Project/requirements.txt` line `gesh-core @ git+…@49312393…` |
-| Engine pin | `gesh-project-trading/requirements.txt` line `gesh-core @ git+…@33af7482…` |
-| Latest tag is `v0.6.1` | `list_tags`; no `v0.7` / `v0.8` |
+| `main` = `56f14d4e` | GitHub commits API, 2026-09-07 (unchanged since 2026-08-27) |
+| CI green on that head | Actions run `33033241239`, `head_sha=56f14d4e`, conclusion `success` |
+| Product / engine pins | **not re-verified this run** (404). Last live read 2026-08-22: product `49312393`, engine `33af7482` |
+| Latest tag is `v0.6.1` | `list_tags`; peeled SHA `f11c460f…`; no `v0.7` / `v0.8` |
 | No GitHub Releases | `list_releases` empty |
-| DCF untested on `main` | tree has no `tests/test_dcf*.py` at `97a519b7` |
+| DCF tested on `main` | `tests/test_dcf.py` (22 `test_*`) at `56f14d4e` |
+| In-repo tests | 329 `test_*` across 25 files |
 
 ## 9. Definition of done
 
@@ -157,7 +166,9 @@ recorded explicitly — including when the decision is "no deployment".
 
 | Date | Change | Not changed |
 |---|---|---|
-| 2026-08-22 | 0.8.2: DCF tests + fail-closed empty-ratio/zero-revenue + disclosed capex/nwc; CI import discovery; this document rewritten against live GitHub | no consumer pin changed *by this repo*; no runtime; no LICENSE invented |
-| 2026-08-11 | PR #34 merged (`97a519b7`): reject unhashable trade actions | docs not refreshed (this gap) |
+| 2026-09-07 | Re-verified `main` still `56f14d4e`; open-PR count 34/32 drafts; docs inventory + env-var catalog | no consumer pin changed *by this repo*; no runtime; no LICENSE invented; no draft PRs merged |
+| 2026-08-31 | Control header + milestones rewritten against live `56f14d4e`; DCF tests and CI fd-limit recorded; consumer pins marked unverified (404) | same constraints |
+| 2026-08-22 | 0.8.2: DCF tests + fail-closed empty-ratio/zero-revenue + disclosed capex/nwc; CI import discovery | no consumer pin changed *by this repo* |
+| 2026-08-11 | PR #34 merged (`97a519b7`): reject unhashable trade actions | docs later refreshed in 0.8.2 |
 | 2026-08-08 | PRs #31–#33: DCF module, methodology, vendor LICENSE in wheel (0.7.0 → 0.8.1) | no tag/release cut |
 | 2026-07-31 | PR #11 merged (`a9342c08`): `EffectiveConfig` hashable, version `0.6.2` | no consumer pin changed by this repo |

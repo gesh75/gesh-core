@@ -105,21 +105,21 @@
 <header>
   <div class="badge">GESH Financial · shared core</div>
   <h1>gesh-core</h1>
-  <div class="tag">github.com/gesh75/gesh-core · v0.1.0</div>
+  <div class="tag">github.com/gesh75/gesh-core · v0.8.2 · pin by SHA</div>
   <p class="sub">One installable package that is the single source of truth for the logic the
     <b style="color:var(--yellow)">engine</b> and <b style="color:var(--green)">product</b> repos used to duplicate —
     so a fix lands in both at once and drift is structurally impossible.</p>
   <div class="pill-row">
     <span class="pill">Python <b>≥3.12</b></span>
-    <span class="pill">deps: <b>numpy + yfinance</b></span>
-    <span class="pill">CI <b>green</b> · 3.12–3.14</span>
-    <span class="pill">install <b>git@v0.1.0</b></span>
+    <span class="pill">deps: <b>numpy + yfinance + requests</b></span>
+    <span class="pill">CI <b>3.12–3.14</b></span>
+    <span class="pill">install <b>SHA, not tag</b></span>
   </div>
 </header>
 
 <div class="stats">
-  <div class="stat"><div class="n">11</div><div class="l">shared modules</div></div>
-  <div class="stat g"><div class="n">121</div><div class="l">parity tests</div></div>
+  <div class="stat"><div class="n">17</div><div class="l">shared surfaces</div></div>
+  <div class="stat g"><div class="n">329</div><div class="l">in-repo tests</div></div>
   <div class="stat y"><div class="n">2</div><div class="l">consumer repos</div></div>
   <div class="stat p"><div class="n">0</div><div class="l">regressions</div></div>
 </div>
@@ -159,6 +159,12 @@
       <span class="chip both">trading.risk_gate_core<span class="s">both</span></span>
       <span class="chip engine">trading.levels<span class="s">eng</span></span>
       <span class="chip engine">trading.indicators<span class="s">eng</span></span>
+      <span class="chip both">db_path<span class="s">both</span></span>
+      <span class="chip both">market_fetch<span class="s">both</span></span>
+      <span class="chip both">sentiment_connector<span class="s">both</span></span>
+      <span class="chip both">trading.autopilot_core<span class="s">both</span></span>
+      <span class="chip both">dcf<span class="s">meas.</span></span>
+      <span class="chip both">ledger<span class="s">4A/4B</span></span>
     </div>
   </div>
 </div>
@@ -172,7 +178,7 @@
 <span class="k">from</span> gesh_core <span class="k">import</span> db <span class="k">as</span> _impl
 sys.modules[__name__] = _impl   <span class="c"># import db  →  the single gesh_core.db</span></pre>
 
-<h2>The 11 modules</h2>
+<h2>The shared modules</h2>
 <p class="lead">Harmonization was decided per module — <b>identical</b>, <b>engine-superset</b>,
   <b>product-canonical</b>, or a <b>union</b> of both repos' best behavior. Never a blind overwrite.</p>
 <div class="grid" id="mods"></div>
@@ -182,7 +188,7 @@ sys.modules[__name__] = _impl   <span class="c"># import db  →  the single ges
   call time. <b>Each repo keeps its own <code>gesh_financial.db</code></b> (rule #44 — the engine and product paper
   books are deliberately separate); only the wash-sale tracker is wired cross-repo.</p>
 <div class="diagram" style="font-family:var(--mono);font-size:13px;line-height:2">
-  <div><span class="f">trading.state · db</span>&nbsp;&nbsp;<span style="color:var(--muted)">GESH_DB_PATH</span> → <span style="color:var(--green)">cwd/gesh_financial.db</span> <span class="c">(per-repo; VirtioFS → /tmp fallback)</span></div>
+  <div><span class="f">trading.state · db</span>&nbsp;&nbsp;<span style="color:var(--muted)">GESH_DB_PATH</span> → <span style="color:var(--green)">cwd/gesh_financial.db</span> <span class="c">(per-repo; probe failure raises — no /tmp fallback)</span></div>
   <div><span class="f">tax_harvester</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color:var(--muted)">GESH_TRACKER_DB</span> → <span style="color:var(--muted)">GESH_TRADING_HOME</span> → <span style="color:var(--green)">cwd</span> <span class="c">(product wires → engine db)</span></div>
   <div><span class="f">allocation_config</span>&nbsp;<span style="color:var(--muted)">GESH_CONFIG_PATH</span> → <span style="color:var(--green)">cwd/gesh_config.json</span> <span class="c">(per-repo config)</span></div>
 </div>
@@ -193,23 +199,29 @@ sys.modules[__name__] = _impl   <span class="c"># import db  →  the single ges
 <div class="deferred" id="def"></div>
 
 <footer>
-  gesh-core · Phase 3 de-drift complete · 2026-06-20 &nbsp;·&nbsp; engine 293 ✓ · product 143 ✓ · core 121 ✓
+  gesh-core · v0.8.2 · 2026-09-07 inventory &nbsp;·&nbsp; 329 in-repo tests &nbsp;·&nbsp; Phase 3 consumer counts were a 2026-06-20 snapshot
 </footer>
 </div>
 
 <script>
 const M=[
- {n:"allocation_config",p:"allocation_config.py",s:"both",pu:"Buying-power caps + scanner settings + the validate_action() trade gate.",d:["–"],c:["paper_trading","server","invest_radar"],loc:282,t:7,h:"identical → cwd-relative config (GESH_CONFIG_PATH)"},
- {n:"ecg",p:"ecg.py",s:"both",pu:"Equity Curve Gate — drawdown + loss-streak circuit breaker.",d:["–"],c:["consensus","server","crypto_correlation"],loc:158,t:10,h:"product-canonical — streak from equity CHANGES, not percent_change"},
- {n:"kelly",p:"kelly.py",s:"both",pu:"Kelly-criterion position sizing (continuous + discrete blend).",d:["price_source*"],c:["server","consensus","run_engines2"],loc:238,t:13,h:"union — engine 2y Yahoo fetch + RH fallback + product returns= param"},
- {n:"tax_harvester",p:"tax_harvester.py",s:"both",pu:"Tax-loss harvesting + 30-day wash-sale window tracker.",d:["–"],c:["server","run_engines2"],loc:278,t:13,h:"env-driven DB resolver (GESH_TRACKER_DB / TRADING_HOME / cwd)"},
- {n:"db",p:"db.py",s:"both",pu:"SQLite persistence: analysis_runs, equity_snapshots, trade_log.",d:["–"],c:["server","trade_log","market_scanner"],loc:298,t:9,h:"union — connect()+WAL+DDL + corruption-tolerant get_analysis_by_id"},
- {n:"trading.contract",p:"trading/contract.py",s:"both",pu:"The TradeIntent type — the single signal→gate→exec contract.",d:["–"],c:["risk_gate","execution","autopilot","server"],loc:151,t:13,h:"union — engine source= provenance + product len(symbol)≤12 cap"},
- {n:"trading.config",p:"trading/config.py",s:"both",pu:"RiskConfig — ultra-conservative, env-overridable risk + mode.",d:["–"],c:["risk_gate","autopilot","execution"],loc:114,t:9,h:"engine-superset (extra gates) + product robust env parsing"},
- {n:"trading.state",p:"trading/state.py",s:"both",pu:"Execution audit chain: trade_intents → risk_decisions → orders.",d:["–"],c:["risk_gate","execution","autopilot"],loc:327,t:10,h:"union — WAL + job_markers + two-book paper P&L"},
+ {n:"allocation_config",p:"allocation_config.py",s:"both",pu:"Buying-power caps + scanner settings + the validate_action() trade gate.",d:["–"],c:["paper_trading","server","invest_radar"],loc:353,t:17,h:"cwd config; actions must be BUY/ADD/TRIM/SELL (unhashable → fail closed)"},
+ {n:"ecg",p:"ecg.py",s:"both",pu:"Equity Curve Gate — drawdown + loss-streak circuit breaker.",d:["–"],c:["consensus","server","crypto_correlation"],loc:179,t:12,h:"product-canonical — streak from equity CHANGES, not percent_change"},
+ {n:"kelly",p:"kelly.py",s:"both",pu:"Kelly-criterion position sizing (continuous + discrete blend).",d:["price_source*"],c:["server","consensus","run_engines2"],loc:544,t:29,h:"union — engine 2y Yahoo fetch + RH fallback + product returns= param"},
+ {n:"tax_harvester",p:"tax_harvester.py",s:"both",pu:"Tax-loss harvesting + 30-day wash-sale window tracker.",d:["–"],c:["server","run_engines2"],loc:328,t:16,h:"env-driven DB resolver; probe failure raises (no /tmp fallback)"},
+ {n:"db",p:"db.py",s:"both",pu:"SQLite persistence: analysis_runs, equity_snapshots, trade_log + ledger init.",d:["db_path","ledger"],c:["server","trade_log","market_scanner"],loc:347,t:12,h:"connect()+WAL+DDL + FK pragma; init_db() creates ledger tables"},
+ {n:"trading.contract",p:"trading/contract.py",s:"both",pu:"The TradeIntent type — the single signal→gate→exec contract.",d:["–"],c:["risk_gate","execution","autopilot","server"],loc:189,t:17,h:"BUY/SELL/HOLD + source= provenance + len(symbol)≤12 cap"},
+ {n:"trading.config",p:"trading/config.py",s:"both",pu:"RiskConfig — ultra-conservative, env-overridable risk + mode.",d:["–"],c:["risk_gate","autopilot","execution"],loc:255,t:31,h:"strict true/false safety booleans (PAPER_MODE / REQUIRE_APPROVAL / MARKET_REGIME_GATE)"},
+ {n:"trading.state",p:"trading/state.py",s:"both",pu:"Execution audit chain: trade_intents → risk_decisions → orders.",d:["db_path"],c:["risk_gate","execution","autopilot"],loc:550,t:19,h:"union — WAL + job_markers + two-book paper P&L"},
  {n:"trading.risk_gate_core",p:"trading/risk_gate_core.py",s:"both",pu:"Seam-free gate primitives: GateVerdict + CASH_FLOOR math.",d:["config","contract"],c:["risk_gate","execution"],loc:65,t:7,h:"union — shared GateVerdict + _post_trade_cash_estimate (rule #32)"},
- {n:"trading.levels",p:"trading/levels.py",s:"engine",pu:"ATR-adaptive stop/target derivation (3×ATR stop / 5×ATR target).",d:["indicators","consensus*"],c:["tracker","autopilot","consensus_shadow"],loc:203,t:7,h:"pure — extracted from tracker.py"},
- {n:"trading.indicators",p:"trading/indicators.py",s:"engine",pu:"Lightweight equity ATR helper (true-range math, numpy).",d:["–"],c:["levels"],loc:46,t:0,h:"pure — dependency of levels"},
+ {n:"trading.levels",p:"trading/levels.py",s:"engine",pu:"ATR-adaptive stop/target derivation (3×ATR stop / 5×ATR target).",d:["indicators","market_fetch"],c:["tracker","autopilot","consensus_shadow"],loc:199,t:15,h:"pure — ATR via gesh_core.market_fetch, not host price_source"},
+ {n:"trading.indicators",p:"trading/indicators.py",s:"engine",pu:"Lightweight equity ATR helper (true-range math, numpy).",d:["–"],c:["levels"],loc:46,t:4,h:"pure — dependency of levels; direct ATR tests as of 0.8.2"},
+ {n:"db_path",p:"db_path.py",s:"both",pu:"Fail-closed SQLite path resolver shared by db and trading.state.",d:["–"],c:["db","trading.state"],loc:51,t:5,h:"GESH_DB_PATH → cwd; DDL probe; failure raises (no /tmp fallback)"},
+ {n:"market_fetch",p:"market_fetch.py",s:"both",pu:"Retry-hardened Yahoo OHLCV with host-injected Robinhood fallback.",d:["–"],c:["levels","consensus"],loc:168,t:13,h:"never raises; fallback is an explicit callable, never sys.path discovery"},
+ {n:"sentiment_connector",p:"sentiment_connector.py",s:"both",pu:"Live Reddit crowd sentiment (VADER + upvote weight, keyword fallback).",d:["–"],c:["consensus"],loc:457,t:11,h:"praw → public JSON → ABSTAIN; praw/nltk optional"},
+ {n:"trading.autopilot_core",p:"trading/autopilot_core.py",s:"both",pu:"Pure autopilot fragments: entry floor, candidate marker, stop-sweep SELL.",d:["contract"],c:["autopilot"],loc:80,t:6,h:"stop_sweep_intent always sets target_position_pct=0.0"},
+ {n:"dcf",p:"dcf/",s:"both",pu:"Deterministic statement DCF — measurement only, no trades or gates.",d:["yfinance"],c:["trading.dcf_* shims"],loc:889,t:22,h:"v0.8.2: empty-ratio fail-closed + disclosed capex/nwc — see DCF.md"},
+ {n:"ledger",p:"ledger/",s:"both",pu:"Decision ledger: content-addressed snapshots + append-only recommendations.",d:["db"],c:["daily_analysis adapter"],loc:1994,t:92,h:"Phase 4A/4B; no production caller in this repo — see LEDGER_PHASE4A.md"},
 ];
 const D=[
  {n:"trading.tracker",r:"Engine-only — the autonomy-gate source of truth (paper_positions / paper_outcomes / win-rate / Sharpe). No duplication, no drift.",w:"rules #26 / #44"},
