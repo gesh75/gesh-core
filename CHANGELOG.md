@@ -4,6 +4,14 @@ All notable changes to this package are recorded here. Version strings are
 literals in `pyproject.toml`, `src/gesh_core/__init__.py`, and
 `tests/test_package_version.py` — bumping requires editing all three.
 
+## Unreleased
+
+### Fixed
+- `validate_action` runs size, position, cash, and price checks even when
+  `auto_trade` is OFF. Paper callers can pass `require_live_permission=False`
+  to skip only live execution permission. Returns `ActionCheck` (still
+  unpackable as `ok, reason = ...`) with a structured `code`.
+
 ## 0.8.2 — 2026-08-22
 
 ### Fixed
