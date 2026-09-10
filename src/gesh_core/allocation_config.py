@@ -224,10 +224,10 @@ def validate_action(
 
     Checks applied:
       1. Auto-trade gate (if auto_trade=False, always block live execution)
-      2. Max $ per trade
-      3. Max open positions
-      4. Cash buffer floor
-      5. Scanner price filter (if price provided)
+      2. Max $ per trade (BUY/ADD only — exits must not be trapped by the entry cap)
+      3. Max open positions (BUY/ADD only)
+      4. Cash buffer floor (BUY/ADD only)
+      5. Scanner price filter (BUY/ADD only, if price provided)
     """
     cfg = load_config()
 
@@ -238,29 +238,34 @@ def validate_action(
     if not cfg["auto_trade"]:
         return False, "Auto-trade is OFF — review and execute manually"
 
-    # 2. Max $ per trade
-    if is_options:
-        cap = cfg["max_options_per_trade"]
-        cap_label = "options"
-    else:
-        cap = cfg["max_stock_per_trade"]
-        cap_label = "stock"
+    opening = action in ("BUY", "ADD")
 
-    if trade_usd > cap:
-        return False, (
-            f"Trade size ${trade_usd:,.0f} exceeds max {cap_label} per trade "
-            f"(${cap:,.0f}). Reduce position."
-        )
+    # 2. Max $ per trade — entry sizing only. A position that appreciated past
+    #    max_stock_per_trade (or a loser that the scanner band no longer admits)
+    #    must still be closeable; "Reduce position" is meaningless on a SELL.
+    if opening:
+        if is_options:
+            cap = cfg["max_options_per_trade"]
+            cap_label = "options"
+        else:
+            cap = cfg["max_stock_per_trade"]
+            cap_label = "stock"
+
+        if trade_usd > cap:
+            return False, (
+                f"Trade size ${trade_usd:,.0f} exceeds max {cap_label} per trade "
+                f"(${cap:,.0f}). Reduce position."
+            )
 
     # 3. Max open positions
-    if action in ("BUY", "ADD") and open_positions >= cfg["max_open_positions"]:
+    if opening and open_positions >= cfg["max_open_positions"]:
         return False, (
             f"Already at max open positions ({cfg['max_open_positions']}). "
             "Close a position before opening another."
         )
 
     # 4. Cash buffer
-    if current_cash is not None and action in ("BUY", "ADD"):
+    if opening and current_cash is not None:
         remaining = current_cash - trade_usd
         if remaining < cfg["min_cash_buffer"]:
             return False, (
@@ -268,8 +273,10 @@ def validate_action(
                 f"${cfg['min_cash_buffer']:,.0f} minimum buffer. Reduce size."
             )
 
-    # 5. Price filter (scanner mode)
-    if current_price is not None and cfg["scanner_timeframe"] != "daily":
+    # 5. Price filter (scanner mode) — entry universe only. A name that
+    #    broke out above the ceiling or collapsed below the floor would
+    #    otherwise be un-sellable through this gate.
+    if opening and current_price is not None and cfg["scanner_timeframe"] != "daily":
         if current_price < cfg["scanner_price_min"]:
             return False, (
                 f"{symbol} price ${current_price:.2f} below scanner minimum "
