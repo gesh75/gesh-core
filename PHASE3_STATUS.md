@@ -1,5 +1,10 @@
 # Phase 3 — gesh-core Extraction Status
 
+> Historical log of the 2026-06 extraction. Current module inventory, DCF, ledger,
+> and CI live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
+> [`docs/DCF.md`](docs/DCF.md), and [`docs/LEDGER_PHASE4A.md`](docs/LEDGER_PHASE4A.md).
+> Do not treat the “11 modules / 121 tests” counts below as current.
+
 De-duplicate the engine (`gesh-project-trading`) and product (`gesh-project`)
 repos by moving shared modules into one installable `gesh-core` package. Each
 consumer keeps a thin transparent shim where the module used to live, so import
