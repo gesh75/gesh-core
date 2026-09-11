@@ -196,6 +196,8 @@ def _validate_allocation_numeric(key: str, value: Any) -> None:
 def _validate_allocation_relationships(cfg: dict[str, Any]) -> None:
     stock = cfg.get("stock_allocation_pct")
     options = cfg.get("options_allocation_pct")
+    if stock is None or options is None:
+        return
     try:
         stock_f = float(stock)
         options_f = float(options)
