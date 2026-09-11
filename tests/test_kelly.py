@@ -4,6 +4,7 @@ Network-free: returns are injected via the `returns=` param (product's testabili
 addition, now canonical). Pins the Kelly math + sizing/action logic both repos rely
 on. Mirrors the product repo's tests/test_kelly.py so neither consumer regresses.
 """
+
 from __future__ import annotations
 
 import os
@@ -24,9 +25,10 @@ from gesh_core.kelly import (
     kelly_size_holding,
     run_kelly_analysis,
 )
+from gesh_core.trading.config import ConfigError
 
 rng = np.random.default_rng(42)
-POSITIVE_DRIFT = (rng.normal(0.002, 0.01, 120)).astype(float)   # upward drift
+POSITIVE_DRIFT = (rng.normal(0.002, 0.01, 120)).astype(float)  # upward drift
 NEGATIVE_DRIFT = (rng.normal(-0.003, 0.01, 120)).astype(float)  # downward drift
 
 
@@ -44,28 +46,42 @@ def test_parse_position_cap_valid_string():
     assert kelly._parse_position_cap("0.18", 0.25) == 0.18
 
 
-@pytest.mark.parametrize("value", ["", "abc", "nan", "inf", "-0.1", "1.1", "100"])
-def test_invalid_gross_cap_env_fails_safe(value, monkeypatch):
-    """KELLY_MAX_GROSS_PCT must use the same finite-[0,1] parser as position cap."""
+@pytest.mark.parametrize("value", ["abc", "nan", "inf", "-0.1", "1.1", "100"])
+def test_invalid_gross_cap_env_fails_construction(value, monkeypatch):
+    """KELLY_MAX_GROSS_PCT rejects NaN/inf/out-of-range instead of falling back."""
     monkeypatch.setenv("KELLY_MAX_GROSS_PCT", value)
+    with pytest.raises(ConfigError):
+        kelly._max_gross_exposure()
+
+
+def test_empty_gross_cap_env_keeps_default(monkeypatch):
+    monkeypatch.setenv("KELLY_MAX_GROSS_PCT", "")
     assert kelly._max_gross_exposure() == 1.0
 
 
-@pytest.mark.parametrize("value", ["", "abc", "nan", "inf", "-0.1", "1.1"])
-def test_invalid_position_cap_env_fails_safe(value):
+@pytest.mark.parametrize("value", ["abc", "nan", "inf", "-0.1", "1.1"])
+def test_invalid_position_cap_env_fails_construction(value):
     env = os.environ.copy()
     env["KELLY_MAX_POSITION_PCT"] = value
+    src_root = str(__import__("pathlib").Path(kelly.__file__).resolve().parents[1])
+    env["PYTHONPATH"] = src_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     proc = subprocess.run(
-        [sys.executable, "-c", "from gesh_core.kelly import MAX_POSITION_PCT; print(MAX_POSITION_PCT)"],
-        check=True,
+        [
+            sys.executable,
+            "-c",
+            "from gesh_core.kelly import MAX_POSITION_PCT; print(MAX_POSITION_PCT)",
+        ],
+        check=False,
         capture_output=True,
         text=True,
         env=env,
     )
-    assert float(proc.stdout) == 0.25
+    assert proc.returncode != 0
+    assert "ConfigError" in (proc.stderr + proc.stdout)
 
 
 # ─── pure math ────────────────────────────────────────────────────────────────
+
 
 def test_continuous_kelly_symmetric_is_zero():
     sym = np.array([0.01, -0.01, 0.01, -0.01] * 20, dtype=float)
@@ -75,7 +91,7 @@ def test_continuous_kelly_symmetric_is_zero():
 def test_continuous_kelly_zero_sigma_guard():
     const = np.array([0.01] * 50, dtype=float)
     out = _continuous_kelly(const)
-    assert out["kelly_pct"] == 0.0   # sigma 0 -> no div-by-zero
+    assert out["kelly_pct"] == 0.0  # sigma 0 -> no div-by-zero
 
 
 def test_discrete_kelly_keys():
@@ -84,9 +100,12 @@ def test_discrete_kelly_keys():
         assert k in out
 
 
-@pytest.mark.parametrize("ann_target,expected", [
-    (np.array([0.0001] * 100, dtype=float), "LOW"),
-])
+@pytest.mark.parametrize(
+    "ann_target,expected",
+    [
+        (np.array([0.0001] * 100, dtype=float), "LOW"),
+    ],
+)
 def test_volatility_tiers(ann_target, expected):
     assert _volatility_score(ann_target) in {"LOW", "MEDIUM", "HIGH", "EXTREME"}
 
@@ -97,9 +116,11 @@ def test_max_drawdown_is_nonpositive():
 
 # ─── kelly_size_holding with injected returns ─────────────────────────────────
 
+
 def test_injected_returns_skip_fetch():
-    res = kelly_size_holding("X", 1_000, 100_000, avg_cost=10, current_price=12,
-                             returns=POSITIVE_DRIFT)
+    res = kelly_size_holding(
+        "X", 1_000, 100_000, avg_cost=10, current_price=12, returns=POSITIVE_DRIFT
+    )
     assert "error" not in res
     assert res["symbol"] == "X"
     assert 0.0 <= res["optimal_pct"] <= MAX_POSITION_PCT * 100
@@ -119,8 +140,9 @@ def test_negative_drift_avoids():
 
 def test_ai_penalty_reduces_size():
     base = kelly_size_holding("X", 1_000, 100_000, 10, 12, returns=POSITIVE_DRIFT)
-    penalised = kelly_size_holding("X", 1_000, 100_000, 10, 12, returns=POSITIVE_DRIFT,
-                                   ai_eval={"verdict": "AVOID"})
+    penalised = kelly_size_holding(
+        "X", 1_000, 100_000, 10, 12, returns=POSITIVE_DRIFT, ai_eval={"verdict": "AVOID"}
+    )
     assert penalised["optimal_pct"] <= base["optimal_pct"]
     assert penalised["ai_penalty"] == 0.5
 
@@ -133,13 +155,15 @@ def test_hard_cap_enforced():
 
 
 def test_insufficient_history_returns_error():
-    res = kelly_size_holding("X", 1_000, 100_000, 10, 12,
-                             returns=np.array([0.01] * (MIN_HISTORY_DAYS - 5), dtype=float))
+    res = kelly_size_holding(
+        "X", 1_000, 100_000, 10, 12, returns=np.array([0.01] * (MIN_HISTORY_DAYS - 5), dtype=float)
+    )
     assert res["recommended_pct"] is None
     assert "Insufficient" in res["error"]
 
 
 # ─── run_kelly_analysis (portfolio) ───────────────────────────────────────────
+
 
 def test_run_kelly_analysis_structure(monkeypatch):
     # Avoid network: stub _fetch_returns to a deterministic array.
@@ -149,8 +173,15 @@ def test_run_kelly_analysis_structure(monkeypatch):
         {"symbol": "BBB", "equity": 2000, "average_buy_price": 20, "current_price": 18},
     ]
     out = run_kelly_analysis(holdings, total_portfolio=100_000)
-    assert {"holdings", "total_optimal_allocated_pct", "cash_recommended_pct",
-            "trim_list", "add_list", "avoid_list", "portfolio_kelly_score"} <= set(out)
+    assert {
+        "holdings",
+        "total_optimal_allocated_pct",
+        "cash_recommended_pct",
+        "trim_list",
+        "add_list",
+        "avoid_list",
+        "portfolio_kelly_score",
+    } <= set(out)
     assert len(out["holdings"]) == 2
     # sorted by optimal_pct desc
     pcts = [h.get("optimal_pct", 0) for h in out["holdings"]]
@@ -170,8 +201,7 @@ def test_under_cap_uncorrelated_is_unchanged(monkeypatch):
     a = rng.normal(0.002, 0.01, 120).astype(float)
     b = rng.normal(0.002, 0.01, 120).astype(float)
     series = {"AAA": a, "BBB": b}
-    monkeypatch.setattr(kelly, "_fetch_returns",
-                        lambda symbol, days=90: series[symbol])
+    monkeypatch.setattr(kelly, "_fetch_returns", lambda symbol, days=90: series[symbol])
 
     out = run_kelly_analysis([_holding("AAA"), _holding("BBB")], total_portfolio=100_000)
 
@@ -214,8 +244,10 @@ def test_gross_cap_rescales_overbet_book(monkeypatch):
     # Distinct per-symbol drift so names are NOT mutually correlated (avoid the
     # haircut muddying the gross-cap assertion), each strongly positive.
     drifts = {"AAA": 0.030, "BBB": 0.028, "CCC": 0.026, "DDD": 0.024}
-    series = {s: (np.full(120, d, dtype=float) + rng.normal(0, 0.01, 120)).astype(float)
-              for s, d in drifts.items()}
+    series = {
+        s: (np.full(120, d, dtype=float) + rng.normal(0, 0.01, 120)).astype(float)
+        for s, d in drifts.items()
+    }
     monkeypatch.setattr(kelly, "_fetch_returns", lambda symbol, days=90: series[symbol])
     monkeypatch.setenv("KELLY_MAX_GROSS_PCT", "0.30")  # 30% gross cap, easily exceeded
 
@@ -267,7 +299,7 @@ def test_positive_autocorrelation_shrinks_size(monkeypatch):
     # wanders to a large realized mean that would cap both runs and hide the shrink.
     ar = (ar - ar.mean() + 0.0001).astype(float)  # thin drift, positive autocorr
     shuffled = ar.copy()
-    np.random.default_rng(9).shuffle(shuffled)   # same values, autocorr destroyed
+    np.random.default_rng(9).shuffle(shuffled)  # same values, autocorr destroyed
 
     ac_size = kelly_size_holding("X", 1000, 100_000, 10, 12, returns=ar)["optimal_pct"]
     iid_size = kelly_size_holding("X", 1000, 100_000, 10, 12, returns=shuffled)["optimal_pct"]
@@ -300,12 +332,14 @@ def test_max_position_cap_read_at_call_time(monkeypatch):
 
 # ─── date-aligned correlation haircuts (PR-3) ──────────────────────────────────
 
+
 def test_haircut_aligns_by_date_not_position():
     # B is A minus one mid-series day: identical returns on every SHARED date.
     # Date-aligned correlation is exactly 1.0 → both get the 1/sqrt(2) haircut.
     # Positional alignment (the old bug) compared A shifted-by-one against B and
     # saw near-zero correlation → no haircut → correlated cluster overbet.
     import pandas as pd
+
     local = np.random.default_rng(7)
     dates = pd.bdate_range("2026-01-05", periods=40)
     a = pd.Series(local.normal(0.001, 0.02, 40), index=dates)
@@ -317,6 +351,7 @@ def test_haircut_aligns_by_date_not_position():
 
 def test_haircut_uncorrelated_dated_series_untouched():
     import pandas as pd
+
     local = np.random.default_rng(11)
     dates = pd.bdate_range("2026-01-05", periods=60)
     a = pd.Series(local.normal(0.001, 0.02, 60), index=dates)
@@ -327,6 +362,7 @@ def test_haircut_uncorrelated_dated_series_untouched():
 
 def test_disjoint_series_does_not_suppress_other_pair_haircut():
     import pandas as pd
+
     dates = pd.bdate_range("2026-01-05", periods=20)
     local = np.random.default_rng(19)
     a = pd.Series(local.normal(0.001, 0.02, 20), index=dates)
@@ -334,9 +370,7 @@ def test_disjoint_series_does_not_suppress_other_pair_haircut():
     disjoint_dates = pd.bdate_range("2025-01-06", periods=20)
     c = pd.Series(local.normal(0.001, 0.02, 20), index=disjoint_dates)
 
-    hc = kelly._correlation_haircuts(
-        ["A", "B", "C"], {"A": a, "B": b, "C": c}, threshold=0.7
-    )
+    hc = kelly._correlation_haircuts(["A", "B", "C"], {"A": a, "B": b, "C": c}, threshold=0.7)
 
     assert hc["A"] == pytest.approx(1 / np.sqrt(2), abs=1e-6)
     assert hc["B"] == pytest.approx(1 / np.sqrt(2), abs=1e-6)
@@ -357,16 +391,18 @@ def test_run_kelly_analysis_date_aligned_end_to_end(monkeypatch):
     # sizing must work off the Series (coerced internally) AND the haircut must
     # engage via date alignment despite the length mismatch.
     import pandas as pd
+
     local = np.random.default_rng(17)
     dates = pd.bdate_range("2025-12-01", periods=100)
     a = pd.Series(local.normal(0.002, 0.01, 100), index=dates)
     b = a.drop(dates[50])
     series = {"AAA": a, "BBB": b}
-    monkeypatch.setattr(kelly, "_fetch_returns",
-                        lambda symbol, days=90: series[symbol])
+    monkeypatch.setattr(kelly, "_fetch_returns", lambda symbol, days=90: series[symbol])
     out = kelly.run_kelly_analysis(
-        [{"symbol": "AAA", "equity": 1000, "average_buy_price": 10, "current_price": 12},
-         {"symbol": "BBB", "equity": 1000, "average_buy_price": 10, "current_price": 12}],
+        [
+            {"symbol": "AAA", "equity": 1000, "average_buy_price": 10, "current_price": 12},
+            {"symbol": "BBB", "equity": 1000, "average_buy_price": 10, "current_price": 12},
+        ],
         total_portfolio=100_000,
     )
     rows = {r["symbol"]: r for r in out["holdings"]}
@@ -387,6 +423,7 @@ def test_fetch_returns_normalizes_tz_aware_index(monkeypatch):
     class _FakeTicker:
         def __init__(self, symbol):
             pass
+
         def history(self, **kwargs):
             return frame
 

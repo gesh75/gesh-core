@@ -17,7 +17,9 @@ from unittest.mock import patch
 import pytest
 
 from gesh_core.trading.config import (
+    NUMERIC_SPECS,
     ConfigError,
+    _canon_parsed,
     _env_strict_bool,
     effective_config,
     load_risk_config,
@@ -335,11 +337,16 @@ def test_exact_public_output_and_frozen_regression():
         assert mrg.validation_status == "missing"
         assert mrg.name == "MARKET_REGIME_GATE"
 
-        # independent exact hash oracle (constructed manually, not derived from eff.settings)
-        canonical = (
-            "MARKET_REGIME_GATE:default:True:missing|"
-            "PAPER_MODE:environment:False:valid|"
-            "REQUIRE_APPROVAL:environment:True:valid"
+        # independent hash oracle: booleans as in this fixture plus numeric defaults
+        expected = {
+            "MARKET_REGIME_GATE": ("default", True, "missing"),
+            "PAPER_MODE": ("environment", False, "valid"),
+            "REQUIRE_APPROVAL": ("environment", True, "valid"),
+        }
+        for spec in NUMERIC_SPECS:
+            expected[spec.key] = ("default", spec.default, "missing")
+        canonical = "|".join(
+            f"{k}:{src}:{_canon_parsed(val)}:{st}" for k, (src, val, st) in sorted(expected.items())
         )
         expected_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         assert eff.config_hash == expected_hash
