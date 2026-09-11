@@ -153,6 +153,22 @@ def test_wrong_type_numeric_fails_construction(tmp_path, monkeypatch):
     assert "9999" not in str(exc.value)
 
 
+def test_wrong_type_string_key_falls_back_not_numeric_error(tmp_path, monkeypatch):
+    """Metadata strings are not numeric caps — a bad type must not fail the load."""
+    p = tmp_path / "gesh_config.json"
+    cfg = dict(ac.DEFAULT_CONFIG)
+    cfg["scanner_timeframe"] = 1
+    cfg["screener_universe"] = 2
+    cfg["version"] = 1.1
+    p.write_text(json.dumps(cfg))
+    monkeypatch.setenv("GESH_CONFIG_PATH", str(p))
+
+    loaded = ac.load_config()
+    assert loaded["scanner_timeframe"] == ac.DEFAULT_CONFIG["scanner_timeframe"]
+    assert loaded["screener_universe"] == ac.DEFAULT_CONFIG["screener_universe"]
+    assert loaded["version"] == ac.DEFAULT_CONFIG["version"]
+
+
 def test_wrong_type_bool_fails_safe(tmp_path, monkeypatch):
     # auto_trade is the live-execution gate: a truthy non-bool ("yes", 1) must
     # fall back to the SAFE default False, never accidentally enable execution.

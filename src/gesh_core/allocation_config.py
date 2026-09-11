@@ -201,10 +201,14 @@ def _validate_allocation_relationships(cfg: dict[str, Any]) -> None:
     try:
         stock_f = float(stock)
         options_f = float(options)
-    except (TypeError, ValueError):
-        return
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(
+            "stock_allocation_pct and options_allocation_pct must be finite numbers"
+        ) from exc
     if not (math.isfinite(stock_f) and math.isfinite(options_f)):
-        return
+        raise ConfigError(
+            "stock_allocation_pct and options_allocation_pct must be finite numbers"
+        )
     if abs(stock_f + options_f - 100.0) > 1e-6:
         raise ConfigError("stock_allocation_pct and options_allocation_pct must sum to 100")
 
@@ -236,19 +240,20 @@ def load_config() -> dict[str, Any]:
         if key in DEFAULT_CONFIG:
             coerced, ok = _coerce_key(key, value)
             if not ok:
-                if isinstance(DEFAULT_CONFIG[key], bool):
-                    logger.warning(
-                        "gesh_config.json: %r has invalid type %s — using default %r",
-                        key,
-                        type(value).__name__,
-                        DEFAULT_CONFIG[key],
+                default = DEFAULT_CONFIG[key]
+                if isinstance(default, (int, float)) and not isinstance(default, bool):
+                    raise ConfigError(
+                        f"Invalid numeric value for {key}; expected a finite "
+                        f"{type(default).__name__}"
                     )
-                    cfg[key] = coerced
-                    continue
-                raise ConfigError(
-                    f"Invalid numeric value for {key}; expected a finite "
-                    f"{type(DEFAULT_CONFIG[key]).__name__}"
+                logger.warning(
+                    "gesh_config.json: %r has invalid type %s — using default %r",
+                    key,
+                    type(value).__name__,
+                    default,
                 )
+                cfg[key] = coerced
+                continue
             _validate_allocation_numeric(key, coerced)
             cfg[key] = coerced
         else:

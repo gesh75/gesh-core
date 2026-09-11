@@ -25,11 +25,13 @@ from gesh_core.trading.config import (
     load_risk_config,
 )
 
+_NUMERIC_ENV_KEYS = tuple(spec.key for spec in NUMERIC_SPECS)
+
 
 @pytest.fixture(autouse=True)
 def clear_safety_env(monkeypatch):
     """Remove safety variables for each test and restore inherited values afterward."""
-    for key in ("PAPER_MODE", "REQUIRE_APPROVAL", "MARKET_REGIME_GATE"):
+    for key in ("PAPER_MODE", "REQUIRE_APPROVAL", "MARKET_REGIME_GATE", *_NUMERIC_ENV_KEYS):
         monkeypatch.delenv(key, raising=False)
 
 
