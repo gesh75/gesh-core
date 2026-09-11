@@ -7,6 +7,10 @@ literals in `pyproject.toml`, `src/gesh_core/__init__.py`, and
 ## Unreleased
 
 ### Fixed
+- `paper_realized_pnl_usd_today` raises `LedgerUnavailable` when neither
+  `paper_outcomes` nor `paper_trades` exists, instead of returning `0.0`.
+  One missing table is still skipped (two-book design). An empty present
+  table is a measured flat day.
 - `validate_action` runs size, position, cash, and price checks even when
   `auto_trade` is OFF. Paper callers can pass `require_live_permission=False`
   to skip only live execution permission. Returns `ActionCheck` (still

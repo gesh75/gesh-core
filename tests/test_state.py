@@ -347,8 +347,18 @@ def test_paper_realized_pnl_engine_like_when_no_paper_trades():
     assert state.paper_realized_pnl_usd_today() == pytest.approx(-75.0)
 
 
-def test_paper_realized_pnl_failsafe_no_tables():
+def test_paper_realized_pnl_unavailable_when_neither_book_exists():
+    """Astra R3: missing ledgers are unavailable, not a fabricated $0 loss."""
     state.init_trading_tables()  # neither paper book exists
+    with pytest.raises(state.LedgerUnavailable):
+        state.paper_realized_pnl_usd_today()
+
+
+def test_paper_realized_pnl_empty_existing_table_is_zero():
+    """An empty but present book is a measured flat day, not unavailable."""
+    state.init_trading_tables()
+    with state._conn() as con:
+        con.execute("CREATE TABLE paper_trades (realized_pnl REAL, exit_time TEXT)")
     assert state.paper_realized_pnl_usd_today() == 0.0
 
 
