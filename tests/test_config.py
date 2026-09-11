@@ -85,9 +85,10 @@ def test_empty_string_env_falls_back_to_default(monkeypatch):
     assert cfg.max_orders_per_day == 3
 
 
-def test_garbage_env_falls_back(monkeypatch):
+def test_garbage_env_fails_construction(monkeypatch):
     monkeypatch.setenv("MAX_DAILY_LOSS_PCT", "not-a-number")
-    assert load_risk_config().max_daily_loss_pct == 0.01
+    with pytest.raises(config.ConfigError):
+        load_risk_config()
 
 
 def test_paper_mode_env_parsing(monkeypatch):

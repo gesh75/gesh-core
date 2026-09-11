@@ -7,6 +7,12 @@ literals in `pyproject.toml`, `src/gesh_core/__init__.py`, and
 ## Unreleased
 
 ### Fixed
+- Numeric safety settings (`RiskConfig` env, Kelly unit-interval caps, and
+  allocation file caps) reject NaN, infinity, negative caps, and malformed
+  values with `ConfigError` instead of silently disabling gates. Empty env
+  still means "use the conservative default" (launchd). Zero is valid only
+  where documented (`MIN_ENTRY_SCORE`, `MAX_POSITION_PCT`, `MIN_CASH_BUFFER_USD`).
+  `effective_config().config_hash` includes numeric limits and provenance.
 - `paper_realized_pnl_usd_today` raises `LedgerUnavailable` when neither
   `paper_outcomes` nor `paper_trades` exists, instead of returning `0.0`.
   One missing table is still skipped (two-book design). An empty present
