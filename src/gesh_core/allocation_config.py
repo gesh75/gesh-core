@@ -34,6 +34,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -99,6 +101,26 @@ PRICE_CAPPED_MODES = {"stock"}
 # Canonical actions accepted by the execution gate. Rejecting rather than
 # normalizing malformed actions keeps every safety check fail-closed.
 TRADE_ACTIONS = frozenset({"BUY", "ADD", "TRIM", "SELL"})
+
+LIVE_PERMISSION_REASON = "Auto-trade is OFF — review and execute manually"
+
+
+@dataclass(frozen=True)
+class ActionCheck:
+    """Result of ``validate_action``.
+
+    Iterates as ``(ok, reason)`` so ``ok, reason = validate_action(...)``
+    keeps working. ``code`` is the structured decision; do not match
+    free-text reasons in new callers.
+    """
+
+    ok: bool
+    reason: str
+    code: str = "OK"
+
+    def __iter__(self) -> Iterator[object]:
+        yield self.ok
+        yield self.reason
 
 # ─── Load / Save ──────────────────────────────────────────────────────────────
 
@@ -217,28 +239,25 @@ def validate_action(
     current_cash: float | None = None,
     is_options: bool = False,
     current_price: float | None = None,
-) -> tuple[bool, str]:
-    """
-    Gate check before executing or recommending a trade.
-    Returns (allowed: bool, reason: str).
+    *,
+    require_live_permission: bool = True,
+) -> ActionCheck:
+    """Gate check before executing or recommending a trade.
 
-    Checks applied:
-      1. Auto-trade gate (if auto_trade=False, always block live execution)
-      2. Max $ per trade
-      3. Max open positions
-      4. Cash buffer floor
-      5. Scanner price filter (if price provided)
+    Financial limits (size, open positions, cash floor, scanner price) always
+    run. Live-execution permission (``auto_trade``) is a separate last check
+    so paper callers can skip only that permission without skipping caps.
+
+    Returns ``ActionCheck`` (unpackable as ``ok, reason = ...``).
     """
     cfg = load_config()
 
     if not isinstance(action, str) or action not in TRADE_ACTIONS:
-        return False, "Invalid action — expected BUY, ADD, TRIM, or SELL"
+        return ActionCheck(
+            False, "Invalid action — expected BUY, ADD, TRIM, or SELL", "INVALID_ACTION"
+        )
 
-    # 1. Auto-trade gate
-    if not cfg["auto_trade"]:
-        return False, "Auto-trade is OFF — review and execute manually"
-
-    # 2. Max $ per trade
+    # Size / position / cash / price first — never gated on auto_trade.
     if is_options:
         cap = cfg["max_options_per_trade"]
         cap_label = "options"
@@ -247,33 +266,46 @@ def validate_action(
         cap_label = "stock"
 
     if trade_usd > cap:
-        return False, (
-            f"Trade size ${trade_usd:,.0f} exceeds max {cap_label} per trade "
-            f"(${cap:,.0f}). Reduce position."
+        return ActionCheck(
+            False,
+            (
+                f"Trade size ${trade_usd:,.0f} exceeds max {cap_label} per trade "
+                f"(${cap:,.0f}). Reduce position."
+            ),
+            "SIZE_CAP",
         )
 
-    # 3. Max open positions
     if action in ("BUY", "ADD") and open_positions >= cfg["max_open_positions"]:
-        return False, (
-            f"Already at max open positions ({cfg['max_open_positions']}). "
-            "Close a position before opening another."
+        return ActionCheck(
+            False,
+            (
+                f"Already at max open positions ({cfg['max_open_positions']}). "
+                "Close a position before opening another."
+            ),
+            "POSITION_CAP",
         )
 
-    # 4. Cash buffer
     if current_cash is not None and action in ("BUY", "ADD"):
         remaining = current_cash - trade_usd
         if remaining < cfg["min_cash_buffer"]:
-            return False, (
-                f"Trade would leave ${remaining:,.0f} cash — below "
-                f"${cfg['min_cash_buffer']:,.0f} minimum buffer. Reduce size."
+            return ActionCheck(
+                False,
+                (
+                    f"Trade would leave ${remaining:,.0f} cash — below "
+                    f"${cfg['min_cash_buffer']:,.0f} minimum buffer. Reduce size."
+                ),
+                "CASH_FLOOR",
             )
 
-    # 5. Price filter (scanner mode)
     if current_price is not None and cfg["scanner_timeframe"] != "daily":
         if current_price < cfg["scanner_price_min"]:
-            return False, (
-                f"{symbol} price ${current_price:.2f} below scanner minimum "
-                f"${cfg['scanner_price_min']:.2f}"
+            return ActionCheck(
+                False,
+                (
+                    f"{symbol} price ${current_price:.2f} below scanner minimum "
+                    f"${cfg['scanner_price_min']:.2f}"
+                ),
+                "PRICE_FILTER",
             )
         # Upper price ceiling is intended only for the penny-stock universe.
         # Enforce it for price-capped modes (mode-aware, not a hardcoded $50
@@ -284,12 +316,19 @@ def validate_action(
             and cfg["scanner_timeframe"] in PRICE_CAPPED_MODES
             and current_price > price_max
         ):
-            return False, (
-                f"{symbol} price ${current_price:.2f} above scanner maximum "
-                f"${price_max:.2f}"
+            return ActionCheck(
+                False,
+                (
+                    f"{symbol} price ${current_price:.2f} above scanner maximum "
+                    f"${price_max:.2f}"
+                ),
+                "PRICE_FILTER",
             )
 
-    return True, "OK"
+    if require_live_permission and not cfg["auto_trade"]:
+        return ActionCheck(False, LIVE_PERMISSION_REASON, "LIVE_PERMISSION")
+
+    return ActionCheck(True, "OK", "OK")
 
 
 def get_allocation_summary(buying_power: float | None = None) -> dict:

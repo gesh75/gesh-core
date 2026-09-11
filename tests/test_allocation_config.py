@@ -194,3 +194,82 @@ def test_update_config_rejects_wrong_type():
     import pytest
     with pytest.raises(ValueError, match="auto_trade"):
         ac.update_config(auto_trade="yes")
+
+
+def _write_cfg(tmp_path, monkeypatch, **overrides):
+    cfg = dict(ac.DEFAULT_CONFIG)
+    cfg.update(overrides)
+    path = tmp_path / "gesh_config.json"
+    path.write_text(json.dumps(cfg))
+    monkeypatch.setenv("GESH_CONFIG_PATH", str(path))
+    return path
+
+
+def test_validate_action_auto_trade_off_still_enforces_size_cap(tmp_path, monkeypatch):
+    """Live permission OFF must not skip the per-trade dollar cap (Astra R1)."""
+    _write_cfg(
+        tmp_path, monkeypatch,
+        auto_trade=False,
+        max_stock_per_trade=100.0,
+    )
+    result = ac.validate_action("BUY", "TEST", 200.0, open_positions=0, current_cash=100_000)
+    ok, reason = result
+    assert ok is False
+    assert "exceeds max" in reason
+    assert "Auto-trade" not in reason
+    assert result.code == "SIZE_CAP"
+
+
+def test_validate_action_auto_trade_off_still_enforces_position_cap(tmp_path, monkeypatch):
+    _write_cfg(tmp_path, monkeypatch, auto_trade=False, max_open_positions=5)
+    result = ac.validate_action("BUY", "TEST", 100.0, open_positions=5, current_cash=100_000)
+    assert result.ok is False
+    assert "max open positions" in result.reason
+    assert "Auto-trade" not in result.reason
+    assert result.code == "POSITION_CAP"
+
+
+def test_validate_action_auto_trade_off_still_enforces_cash_floor(tmp_path, monkeypatch):
+    _write_cfg(tmp_path, monkeypatch, auto_trade=False, min_cash_buffer=500.0)
+    result = ac.validate_action("BUY", "TEST", 100.0, open_positions=0, current_cash=550.0)
+    assert result.ok is False
+    assert "minimum buffer" in result.reason
+    assert "Auto-trade" not in result.reason
+    assert result.code == "CASH_FLOOR"
+
+
+def test_validate_action_skip_live_permission_allows_valid_paper_trade(tmp_path, monkeypatch):
+    _write_cfg(tmp_path, monkeypatch, auto_trade=False, max_stock_per_trade=5_000.0)
+    result = ac.validate_action(
+        "BUY", "TEST", 200.0, open_positions=0, current_cash=100_000,
+        require_live_permission=False,
+    )
+    assert result.ok is True
+    assert result.reason == "OK"
+    assert result.code == "OK"
+
+
+def test_validate_action_skip_live_permission_still_blocks_over_cap(tmp_path, monkeypatch):
+    _write_cfg(tmp_path, monkeypatch, auto_trade=False, max_stock_per_trade=100.0)
+    result = ac.validate_action(
+        "BUY", "TEST", 200.0, open_positions=0, current_cash=100_000,
+        require_live_permission=False,
+    )
+    assert result.ok is False
+    assert result.code == "SIZE_CAP"
+
+
+def test_validate_action_live_request_still_blocked_when_auto_trade_off(tmp_path, monkeypatch):
+    """A valid live request with auto_trade OFF is still permission-blocked."""
+    _write_cfg(tmp_path, monkeypatch, auto_trade=False, max_stock_per_trade=5_000.0)
+    result = ac.validate_action("BUY", "TEST", 200.0, open_positions=0, current_cash=100_000)
+    assert result.ok is False
+    assert "Auto-trade is OFF" in result.reason
+    assert result.code == "LIVE_PERMISSION"
+
+
+def test_validate_action_auto_trade_on_over_cap_unchanged(tmp_path, monkeypatch):
+    _write_cfg(tmp_path, monkeypatch, auto_trade=True, max_stock_per_trade=100.0)
+    result = ac.validate_action("BUY", "TEST", 200.0, open_positions=0, current_cash=100_000)
+    assert result.ok is False
+    assert result.code == "SIZE_CAP"
