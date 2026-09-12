@@ -114,6 +114,42 @@ def test_max_drawdown_is_nonpositive():
     assert _max_drawdown(NEGATIVE_DRIFT) <= 0.0
 
 
+def test_max_drawdown_includes_starting_equity():
+    """A -10% first return then flat is a -10% drawdown, not zero.
+
+    Starting equity is the first peak. Without it, cumprod starts at 0.90 and
+    running_max never sees 1.0, so the opening drop is reported as 0.
+    """
+    returns = np.array([-0.10] + [0.0] * 40, dtype=float)
+    assert _max_drawdown(returns) == pytest.approx(-10.0)
+
+
+def test_max_drawdown_single_negative_return_is_that_drop():
+    assert _max_drawdown(np.array([-0.10], dtype=float)) == pytest.approx(-10.0)
+
+
+def test_max_drawdown_flat_series_is_zero():
+    assert _max_drawdown(np.array([0.0] * 50, dtype=float)) == pytest.approx(0.0)
+
+
+def test_max_drawdown_drop_after_gain_is_from_peak():
+    # 1.00 → 1.20 → 0.90; peak 1.20; (0.90 - 1.20) / 1.20 = -25%.
+    assert _max_drawdown(np.array([0.20, -0.25], dtype=float)) == pytest.approx(-25.0)
+
+
+def test_max_drawdown_recovery_keeps_trough():
+    # 1.00 → 0.90 → 1.08; trough is still -10%.
+    assert _max_drawdown(np.array([-0.10, 0.20], dtype=float)) == pytest.approx(-10.0)
+
+
+def test_kelly_size_holding_reports_opening_drawdown():
+    returns = np.array([-0.10] + [0.0] * 40, dtype=float)
+    res = kelly_size_holding(
+        "X", 1_000, 100_000, avg_cost=10, current_price=10, returns=returns
+    )
+    assert res["max_drawdown"] == pytest.approx(-10.0)
+
+
 # ─── kelly_size_holding with injected returns ─────────────────────────────────
 
 
