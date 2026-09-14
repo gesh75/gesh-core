@@ -8,6 +8,7 @@ GESH_DB_PATH or module DB_PATH after this session default is set.
 from __future__ import annotations
 
 import os
+import shutil
 import socket
 import tempfile
 from pathlib import Path
@@ -35,3 +36,6 @@ def pytest_unconfigure(config: pytest.Config) -> None:
     orig = getattr(config, "_gesh_orig_connect", None)
     if orig is not None:
         socket.socket.connect = orig  # type: ignore[method-assign]
+    root = getattr(config, "_gesh_r7_root", None)
+    if root is not None:
+        shutil.rmtree(root, ignore_errors=True)
