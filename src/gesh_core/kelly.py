@@ -231,9 +231,10 @@ def _volatility_score(returns: np.ndarray) -> str:
     return "EXTREME"
 
 def _max_drawdown(returns: np.ndarray) -> float:
-    cumulative = np.cumprod(1 + returns)
-    running_max = np.maximum.accumulate(cumulative)
-    drawdown = (cumulative - running_max) / running_max
+    """Peak-to-trough drawdown in percent. Starting equity is the first peak."""
+    equity = np.concatenate(([1.0], np.cumprod(1 + returns)))
+    running_max = np.maximum.accumulate(equity)
+    drawdown = (equity - running_max) / running_max
     return float(np.min(drawdown)) * 100  # negative %
 
 def kelly_size_holding(

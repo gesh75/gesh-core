@@ -7,6 +7,8 @@ literals in `pyproject.toml`, `src/gesh_core/__init__.py`, and
 ## Unreleased
 
 ### Fixed
+- `_max_drawdown` includes starting equity as the first peak. A −10% first
+  return then flat is −10%, not 0.
 - Numeric safety settings (`RiskConfig` env, Kelly unit-interval caps, and
   allocation file caps) reject NaN, infinity, negative caps, and malformed
   values with `ConfigError` instead of silently disabling gates. Empty env
