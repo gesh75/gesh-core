@@ -91,6 +91,20 @@ def test_ensure_db_writable_fails_closed_on_corrupt(tmp_path, monkeypatch):
         ensure_db_writable(target)
 
 
+def test_ensure_db_writable_explicit_path_does_not_warn_cwd_split(
+    tmp_path, caplog, monkeypatch
+):
+    import logging
+
+    from gesh_core.db_path import ensure_db_writable
+
+    monkeypatch.delenv("GESH_DB_PATH", raising=False)
+    target = tmp_path / "explicit.db"
+    with caplog.at_level(logging.WARNING, logger="gesh_core.db_path"):
+        ensure_db_writable(target)
+    assert "cwd-resolved" not in caplog.text
+
+
 def test_ensure_db_writable_creates_parent_and_probes(tmp_path):
     from gesh_core.db_path import ensure_db_writable
 

@@ -41,6 +41,7 @@ def ensure_db_writable(path: Path | str | None = None) -> Path:
     Call this from an explicit bootstrap (``init_db``, first ``connect`` /
     ``_conn``), never from import or ``resolve_db_path``.
     """
+    cwd_defaulted = path is None and os.getenv("GESH_DB_PATH") is None
     target = resolve_db_path() if path is None else Path(path)
     key = str(target)
     if key in _writable_ok:
@@ -49,10 +50,9 @@ def ensure_db_writable(path: Path | str | None = None) -> Path:
         if key in _writable_ok:
             return target
         existed = target.exists()
-        env_override = os.getenv("GESH_DB_PATH")
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
-            con = sqlite3.connect(str(target))
+            con = sqlite3.connect(str(target), timeout=30)
             try:
                 con.execute("CREATE TABLE IF NOT EXISTS _state_probe (id INTEGER)")
                 con.execute("DROP TABLE IF EXISTS _state_probe")
@@ -61,7 +61,7 @@ def ensure_db_writable(path: Path | str | None = None) -> Path:
         except (sqlite3.Error, OSError):
             logger.exception("gesh_financial.db is not usable at %s", target)
             raise
-        if not existed and env_override is None:
+        if not existed and cwd_defaulted:
             # A cwd-resolved path that didn't exist means the probe just created
             # a FRESH DB. If the real book lives elsewhere (process launched from
             # the wrong directory) this silently splits the audit trail and

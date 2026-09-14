@@ -18,9 +18,8 @@ from typing import Any
 
 from gesh_core.db_path import ensure_db_writable, resolve_db_path
 
-# Resolved by the SAME fail-closed resolver as trading.state, so the analysis/
-# paper tables and the execution audit chain always share one file (the daily-loss
-# breaker reads across both). Override explicitly via GESH_DB_PATH.
+# Path is the SAME resolve_db_path as trading.state (one book). Writability is
+# ensure_db_writable on first connect, not at import. Override via GESH_DB_PATH.
 DB_PATH = resolve_db_path()
 
 _MAX_ANALYSIS_HISTORY = 100
