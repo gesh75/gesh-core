@@ -6,6 +6,7 @@ on an explicit bootstrap (ensure_db_writable), not import or path resolution.
 Importing db.py / trading.state against a read-only operational sentinel
 must not mutate it.
 """
+
 from __future__ import annotations
 
 import os
@@ -99,10 +100,7 @@ def test_ensure_db_writable_creates_parent_and_probes(tmp_path):
     assert target.exists()
     con = sqlite3.connect(target)
     try:
-        names = {
-            r[0]
-            for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        }
+        names = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     finally:
         con.close()
     assert "_state_probe" not in names
@@ -115,10 +113,7 @@ def test_ensure_db_writable_leaves_no_probe_table(tmp_path):
     ensure_db_writable(target)
     con = sqlite3.connect(target)
     try:
-        names = {
-            r[0]
-            for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        }
+        names = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     finally:
         con.close()
     assert "_state_probe" not in names

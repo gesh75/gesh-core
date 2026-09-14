@@ -7,6 +7,10 @@ literals in `pyproject.toml`, `src/gesh_core/__init__.py`, and
 ## Unreleased
 
 ### Fixed
+- `resolve_db_path` is path-only: no mkdir, connect, or CREATE/DROP at import
+  or collection. Writability is an explicit `ensure_db_writable` bootstrap
+  called from first `connect` / `_conn`. Importing `gesh_core.db` or
+  `trading.state` against a read-only operational sentinel does not mutate it.
 - `_max_drawdown` includes starting equity as the first peak. A −10% first
   return then flat is −10%, not 0.
 - Numeric safety settings (`RiskConfig` env, Kelly unit-interval caps, and

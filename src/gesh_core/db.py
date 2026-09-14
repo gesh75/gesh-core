@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
-from gesh_core.db_path import resolve_db_path
+from gesh_core.db_path import ensure_db_writable, resolve_db_path
 
 # Resolved by the SAME fail-closed resolver as trading.state, so the analysis/
 # paper tables and the execution audit chain always share one file (the daily-loss
@@ -125,6 +125,7 @@ def connect(path: Any = DB_PATH, **kw: Any) -> sqlite3.Connection:
     Returns a plain ``sqlite3.Connection`` — callers manage commit/close
     (directly or via ``with``) exactly as they would with ``sqlite3.connect``.
     """
+    ensure_db_writable(path)
     kw.setdefault("timeout", 30)
     con = sqlite3.connect(path, **kw)
     con.execute("PRAGMA journal_mode=WAL")
