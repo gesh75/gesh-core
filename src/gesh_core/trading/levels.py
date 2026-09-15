@@ -8,9 +8,11 @@ etc. keep working.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 from datetime import UTC, datetime
+from typing import TypeGuard
 
 _log = logging.getLogger(__name__)
 
@@ -47,6 +49,16 @@ EQUITY_MAX_STOP_PCT    = float(os.getenv("EQUITY_MAX_STOP_PCT", "0.15"))   # cap
 EQUITY_ATR_TARGET_MULT = float(os.getenv("EQUITY_ATR_TARGET_MULT", "5.0")) # target = entry ± TARGET_MULT × ATR
 
 
+def _usable_price(value: float | None) -> TypeGuard[float]:
+    """True for a finite price that can be used as entry, ATR, or a stop level.
+
+    ``not nan`` and ``nan <= 0`` are both False, so the older truthiness / ``<= 0``
+    guards treated NaN (and +inf) as a usable quote and emitted NaN stops that
+    can never fill.
+    """
+    return value is not None and math.isfinite(value) and value > 0
+
+
 def _atr_levels(
     action: str,
     entry_price: float,
@@ -61,9 +73,7 @@ def _atr_levels(
     Returns (None, None) when inputs are unusable so the caller can fall back to
     the flat DEFAULT_* levels.
     """
-    if not entry_price or entry_price <= 0:
-        return None, None
-    if not atr_value or atr_value <= 0:
+    if not _usable_price(entry_price) or not _usable_price(atr_value):
         return None, None
 
     # Tolerate a misconfigured band (MIN > MAX via env) — derive lo/hi from the
@@ -172,8 +182,15 @@ def _derive_levels(
 
     BUY → stop below, target above. SELL/short → inverted.
     Levels stay None when entry_price is not a usable positive number.
+    Non-finite explicit levels are treated as missing so they can be replaced
+    rather than persisted as stops that can never fill (``price <= nan`` is
+    always False).
     """
-    if not entry_price or entry_price <= 0:
+    if stop_loss is not None and not _usable_price(stop_loss):
+        stop_loss = None
+    if take_profit is not None and not _usable_price(take_profit):
+        take_profit = None
+    if not _usable_price(entry_price):
         return stop_loss, take_profit
 
     # ATR-adaptive levels only fill the gaps the intent didn't specify.

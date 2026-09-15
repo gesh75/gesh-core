@@ -85,6 +85,22 @@ def test_validate_nonpositive_levels():
     assert any("take_profit must be > 0" in p for p in problems)
 
 
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_validate_rejects_nonfinite_levels(bad):
+    """NaN/inf stops used to pass (``nan <= 0`` is False) and disable the sweep."""
+    problems = TradeIntent(
+        symbol="NVDA",
+        action="BUY",
+        confidence=1.0,
+        source="m",
+        target_position_pct=0.02,
+        stop_loss=bad,
+        take_profit=bad,
+    ).validate()
+    assert any("stop_loss must be > 0" in p for p in problems)
+    assert any("take_profit must be > 0" in p for p in problems)
+
+
 def test_validate_symbol_length_cap_shared():
     # product's stricter rule, now canonical for both repos
     long_symbol = "A" * 13
