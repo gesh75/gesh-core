@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 # DB resolution lives in gesh_core.db_path — shared with db.py so the audit chain
 # and the paper books (which drive the daily-loss breaker) can never land in two
 # different files. `_resolve_db` is kept as an alias for existing import sites.
+from gesh_core.db_path import ensure_db_writable
 from gesh_core.db_path import resolve_db_path as _resolve_db
 
 DB_PATH = _resolve_db()
@@ -141,6 +142,7 @@ def _migrate_trade_intent_provenance(con: sqlite3.Connection) -> None:
 
 @contextmanager
 def _conn():
+    ensure_db_writable(DB_PATH)
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     # WAL + busy_timeout: concurrent writers (autopilot, daily chain, sessions)
