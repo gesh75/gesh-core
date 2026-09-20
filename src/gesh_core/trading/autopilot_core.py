@@ -16,8 +16,8 @@ is live and accumulating the autonomy-gate sample.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Iterable
-from math import isfinite
 
 from .contract import TradeIntent
 
@@ -38,7 +38,7 @@ def entry_floor_blocks(action: str, raw_score: float, min_entry_score: float) ->
     """
     if action != "BUY":
         return False
-    if not isfinite(raw_score) or not isfinite(min_entry_score):
+    if not (math.isfinite(raw_score) and math.isfinite(min_entry_score)):
         return True
     return raw_score < min_entry_score
 

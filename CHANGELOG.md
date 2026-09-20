@@ -4,6 +4,32 @@ All notable changes to this package are recorded here. Version strings are
 literals in `pyproject.toml`, `src/gesh_core/__init__.py`, and
 `tests/test_package_version.py` — bumping requires editing all three.
 
+## Unreleased
+
+### Fixed
+- `_max_drawdown` includes starting equity as the first peak. A −10% first
+  return then flat is −10%, not 0.
+- Numeric safety settings (`RiskConfig` env, Kelly unit-interval caps, and
+  allocation file caps) reject NaN, infinity, negative caps, and malformed
+  values with `ConfigError` instead of silently disabling gates. Empty env
+  still means "use the conservative default" (launchd). Zero is valid only
+  where documented (`MIN_ENTRY_SCORE`, `MAX_POSITION_PCT`, `MIN_CASH_BUFFER_USD`).
+  `effective_config().config_hash` includes numeric limits and provenance.
+- `paper_realized_pnl_usd_today` raises `LedgerUnavailable` when neither
+  `paper_outcomes` nor `paper_trades` exists, instead of returning `0.0`.
+  One missing table is still skipped (two-book design). An empty present
+  table is a measured flat day.
+- `validate_action` runs size, position, cash, and price checks even when
+  `auto_trade` is OFF. Paper callers can pass `require_live_permission=False`
+  to skip only live execution permission. Returns `ActionCheck` (still
+  unpackable as `ok, reason = ...`) with a structured `code`.
+- `validate_action` rejects non-finite / non-numeric trade size on every
+  action, and non-finite cash on BUY/ADD (`NaN > cap` is False in IEEE-754).
+  SELL/TRIM ignore a dirty cash snapshot so emergency exits are not blocked.
+- `entry_floor_blocks` treats non-finite `raw_score` / `min_entry_score` as
+  blocked on BUY. SELL/HOLD stay ungated.
+- `TradeIntent.validate` rejects non-finite stop / take-profit.
+
 ## 0.8.2 — 2026-08-22
 
 ### Fixed

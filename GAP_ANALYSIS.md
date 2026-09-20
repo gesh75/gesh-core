@@ -1,5 +1,11 @@
 # Gap analysis — gesh-core
 
+> Merge note (2026-09-19): `main` (`1ed6f16`, through PR #80) was merged into
+> this branch. Fail-closed NaN guards from this PR are kept. Since the scan
+> below, `main` also landed #65 (parallel gap scan), #77 (R1 allocation
+> permission split), #78 (R3 `LedgerUnavailable`), #79 (R6 numeric safety
+> config), and #80 (R8 max-drawdown starting equity).
+
 Scanned `56f14d4` (`main` = `ci: raise fd limit before pytest (#46)`).
 Date: 2026-09-05. Method: local proofs against installed `src/`, `pytest` +
 `ruff` + `mypy` config, `gh` tags/releases/PRs/Actions, tree + test inventory.

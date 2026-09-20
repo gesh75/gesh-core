@@ -9,6 +9,7 @@ Flip PAPER_MODE=false ONLY after weeks of clean paper runs.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -17,34 +18,17 @@ from types import MappingProxyType
 from typing import Literal
 
 
-def _env_float(key: str, default: float) -> float:
-    # Empty-string env (common in launchd plists / .env) falls back to default,
-    # not a ValueError (product's more-robust parsing, now shared).
-    raw = os.getenv(key)
-    if raw is None or raw == "":
-        return default
-    try:
-        return float(raw)
-    except (TypeError, ValueError):
-        return default
-
-
-def _env_int(key: str, default: int) -> int:
-    raw = os.getenv(key)
-    if raw is None or raw == "":
-        return default
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        return default
-
-
 class ConfigError(ValueError):
-    """Typed error raised for invalid safety-critical boolean configuration.
+    """Typed error raised for invalid safety-critical configuration.
 
     Blank or malformed values for PAPER_MODE, REQUIRE_APPROVAL, or
     MARKET_REGIME_GATE must fail construction with this error rather than
     silently coercing to False.
+
+    NaN, infinity, negative caps, out-of-range, and malformed numeric
+    settings must fail construction rather than silently disabling gates.
+    Exception messages name the key and the rule; they never echo the
+    supplied raw value.
     """
 
 
@@ -79,6 +63,131 @@ def _env_strict_bool(key: str, default: bool) -> bool:
     Delegates to _parse_strict_bool after single os.getenv capture.
     """
     return _parse_strict_bool(key, os.getenv(key), default)
+
+
+@dataclass(frozen=True)
+class NumericSpec:
+    key: str
+    kind: Literal["float", "int"]
+    default: float | int
+    minimum: float | None = None
+    maximum: float | None = None
+    allow_zero: bool = True
+    attr: str | None = None
+
+
+# Field-specific numeric safety limits. Empty/missing env keeps the default.
+# Zero validity is explicit per key (allow_zero).
+NUMERIC_SPECS: tuple[NumericSpec, ...] = (
+    NumericSpec("MAX_POSITION_PCT", "float", 0.02, 0.0, 1.0, True, "max_position_pct"),
+    NumericSpec("MAX_DAILY_LOSS_PCT", "float", 0.01, 0.0, 1.0, False, "max_daily_loss_pct"),
+    NumericSpec("MAX_ORDERS_PER_DAY", "int", 3, 1.0, None, False, "max_orders_per_day"),
+    NumericSpec("MIN_CASH_BUFFER_USD", "float", 500.0, 0.0, None, True, "min_cash_buffer_usd"),
+    NumericSpec("MIN_CONFIDENCE", "float", 0.75, 0.0, 1.0, True, "min_confidence"),
+    NumericSpec("MIN_ENTRY_SCORE", "float", 0.35, 0.0, 1.0, True, "min_entry_score"),
+    NumericSpec("PAPER_CASH_USD", "float", 100_000.0, 0.0, None, False, "paper_cash_usd"),
+    NumericSpec("MAX_PRICE_AGE_SECONDS", "int", 300, 1.0, None, False, "max_price_age_seconds"),
+    NumericSpec(
+        "MAX_PRICE_AGE_SECONDS_PAPER",
+        "int",
+        1800,
+        1.0,
+        None,
+        False,
+        "max_price_age_seconds_paper",
+    ),
+    NumericSpec("MAX_SECTOR_PCT", "float", 0.40, 0.0, 1.0, True, "max_sector_pct"),
+    NumericSpec("EARNINGS_PROXIMITY_HOURS", "int", 48, 0.0, None, True, "earnings_proximity_hours"),
+    NumericSpec(
+        "MAX_CONSECUTIVE_LOSS_DAYS",
+        "int",
+        3,
+        1.0,
+        None,
+        False,
+        "max_consecutive_loss_days",
+    ),
+    NumericSpec(
+        "MIN_CONFIDENCE_RISK_OFF",
+        "float",
+        0.85,
+        0.0,
+        1.0,
+        True,
+        "min_confidence_risk_off",
+    ),
+    NumericSpec("MARKET_REGIME_MA_DAYS", "int", 200, 1.0, None, False, "market_regime_ma_days"),
+    NumericSpec("KELLY_MAX_POSITION_PCT", "float", 0.25, 0.0, 1.0, True, None),
+    NumericSpec("KELLY_MAX_GROSS_PCT", "float", 1.0, 0.0, 1.0, True, None),
+)
+
+_SPEC_BY_KEY: dict[str, NumericSpec] = {spec.key: spec for spec in NUMERIC_SPECS}
+
+
+def _parse_int_token(key: str, token: str) -> int:
+    body = token[1:] if token[:1] in "+-" else token
+    if not body.isdigit():
+        raise ConfigError(f"Invalid numeric value for {key}; expected a finite integer count")
+    return int(token)
+
+
+def _parse_numeric(
+    spec: NumericSpec, raw: str | None
+) -> tuple[float | int, Literal["default", "environment"], Literal["valid", "missing"]]:
+    if raw is None or raw.strip() == "":
+        return spec.default, "default", "missing"
+    token = raw.strip()
+    try:
+        if spec.kind == "int":
+            value: float | int = _parse_int_token(spec.key, token)
+        else:
+            value = float(token)
+    except ConfigError:
+        raise
+    except (TypeError, ValueError):
+        raise ConfigError(
+            f"Invalid numeric value for {spec.key}; expected a finite {spec.kind}"
+        ) from None
+    if not math.isfinite(float(value)):
+        raise ConfigError(f"Non-finite value for {spec.key} is invalid")
+    if value == 0 and not spec.allow_zero:
+        raise ConfigError(f"Zero is not a valid value for {spec.key}")
+    if spec.minimum is not None and float(value) < spec.minimum:
+        raise ConfigError(f"{spec.key} is below the minimum allowed value")
+    if spec.maximum is not None and float(value) > spec.maximum:
+        raise ConfigError(f"{spec.key} is above the maximum allowed value")
+    if spec.kind == "float":
+        value = float(value)
+    return value, "environment", "valid"
+
+
+def parse_unit_interval(key: str, raw: str | None, default: float) -> float:
+    """Finite inclusive-[0, 1] cap. Empty/missing keeps ``default``; invalid raises."""
+    base = _SPEC_BY_KEY.get(key)
+    spec = NumericSpec(
+        key,
+        "float",
+        default,
+        0.0 if base is None else base.minimum,
+        1.0 if base is None else base.maximum,
+        True if base is None else base.allow_zero,
+    )
+    value, _, _ = _parse_numeric(spec, raw)
+    return float(value)
+
+
+def _resolved_numerics() -> dict[str, tuple[float | int, str, str]]:
+    resolved: dict[str, tuple[float | int, str, str]] = {}
+    for spec in NUMERIC_SPECS:
+        resolved[spec.key] = _parse_numeric(spec, os.getenv(spec.key))
+    return resolved
+
+
+def _check_numeric_relationships(values: dict[str, float | int]) -> None:
+    if float(values["MIN_CONFIDENCE_RISK_OFF"]) < float(values["MIN_CONFIDENCE"]):
+        raise ConfigError("MIN_CONFIDENCE_RISK_OFF cannot be below MIN_CONFIDENCE")
+    if int(values["MAX_PRICE_AGE_SECONDS_PAPER"]) < int(values["MAX_PRICE_AGE_SECONDS"]):
+        raise ConfigError("MAX_PRICE_AGE_SECONDS_PAPER cannot be below MAX_PRICE_AGE_SECONDS")
 
 
 @dataclass(frozen=True)
@@ -138,28 +247,21 @@ class RiskConfig:
 
 def load_risk_config() -> RiskConfig:
     """Build RiskConfig from environment, falling back to ultra-conservative defaults."""
+    numerics = _resolved_numerics()
+    _check_numeric_relationships({key: triple[0] for key, triple in numerics.items()})
+    kwargs: dict[str, object] = {}
+    for spec in NUMERIC_SPECS:
+        if spec.attr:
+            kwargs[spec.attr] = numerics[spec.key][0]
     return RiskConfig(
         paper_mode=_env_strict_bool("PAPER_MODE", True),
         require_approval=_env_strict_bool("REQUIRE_APPROVAL", True),
         kill_switch_path=os.getenv("KILL_SWITCH_PATH", str(Path.home() / ".gesh" / "KILL")),
-        max_position_pct=_env_float("MAX_POSITION_PCT", 0.02),
-        max_daily_loss_pct=_env_float("MAX_DAILY_LOSS_PCT", 0.01),
-        max_orders_per_day=_env_int("MAX_ORDERS_PER_DAY", 3),
-        min_cash_buffer_usd=_env_float("MIN_CASH_BUFFER_USD", 500.0),
-        min_confidence=_env_float("MIN_CONFIDENCE", 0.75),
-        min_entry_score=_env_float("MIN_ENTRY_SCORE", 0.35),
-        paper_cash_usd=_env_float("PAPER_CASH_USD", 100_000.0),
-        max_price_age_seconds=_env_int("MAX_PRICE_AGE_SECONDS", 300),
-        max_price_age_seconds_paper=_env_int("MAX_PRICE_AGE_SECONDS_PAPER", 1800),
         market_open_hhmm=os.getenv("MARKET_OPEN_HHMM", "09:30"),
         market_close_hhmm=os.getenv("MARKET_CLOSE_HHMM", "16:00"),
         market_timezone=os.getenv("MARKET_TIMEZONE", "America/New_York"),
-        max_sector_pct=_env_float("MAX_SECTOR_PCT", 0.40),
-        earnings_proximity_hours=_env_int("EARNINGS_PROXIMITY_HOURS", 48),
-        max_consecutive_loss_days=_env_int("MAX_CONSECUTIVE_LOSS_DAYS", 3),
-        min_confidence_risk_off=_env_float("MIN_CONFIDENCE_RISK_OFF", 0.85),
         market_regime_gate=_env_strict_bool("MARKET_REGIME_GATE", True),
-        market_regime_ma_days=_env_int("MARKET_REGIME_MA_DAYS", 200),
+        **kwargs,  # type: ignore[arg-type]
     )
 
 
@@ -169,10 +271,18 @@ def load_risk_config() -> RiskConfig:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _canon_parsed(value: bool | int | float) -> str:
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, int):
+        return str(value)
+    return format(float(value), ".15g")
+
+
 @dataclass(frozen=True)
 class ConfigSetting:
     name: str
-    parsed_value: bool
+    parsed_value: bool | int | float
     source: Literal["default", "environment"]
     raw_input: str
     validation_status: Literal["valid", "missing"]
@@ -202,12 +312,13 @@ class EffectiveConfig:
 def effective_config() -> EffectiveConfig:
     """Return read-only effective configuration for safety-relevant settings.
 
-    Uses the same strict _env_strict_bool parser as load_risk_config().
+    Uses the same strict parsers as load_risk_config().
     Missing: default value, source="default", raw_input="<missing>", status="missing".
-    Present valid (true/false): resolved bool, source="environment", raw_input="<redacted>", status="valid".
+    Present valid: resolved value, source="environment", raw_input="<redacted>", status="valid".
     Blank or malformed: ConfigError propagates (no default substitution).
     Raw environment input is never exposed (only <missing> or <redacted>).
-    Hash (config_hash) is deterministic SHA-256 over sorted name+source+parsed+status; resolved_at excluded.
+    Hash (config_hash) is deterministic SHA-256 over sorted name+source+parsed+status;
+    resolved_at excluded. Numeric limits and provenance are part of the hash.
     Settings collection is immutable (MappingProxyType).
     No side effects, no mutation after construction.
     """
@@ -218,12 +329,11 @@ def effective_config() -> EffectiveConfig:
     for key in safety_keys:
         raw = os.getenv(key)
         if raw is None:
-            parsed = defaults[key]
+            parsed: bool | int | float = defaults[key]
             source: Literal["default", "environment"] = "default"
             status: Literal["valid", "missing"] = "missing"
             raw_redacted = "<missing>"
         else:
-            # Single capture: raw determines both provenance and strict parse
             parsed = _parse_strict_bool(key, raw, defaults[key])
             source = "environment"
             status = "valid"
@@ -237,9 +347,19 @@ def effective_config() -> EffectiveConfig:
             validation_status=status,
         )
 
-    # Deterministic hash over canonical form (sorted keys, no timestamps/resolved_at)
+    numerics = _resolved_numerics()
+    _check_numeric_relationships({key: triple[0] for key, triple in numerics.items()})
+    for key, (num_parsed, num_source, num_status) in numerics.items():
+        settings_dict[key] = ConfigSetting(
+            name=key,
+            parsed_value=num_parsed,
+            source=num_source,  # type: ignore[arg-type]
+            raw_input="<missing>" if num_status == "missing" else "<redacted>",
+            validation_status=num_status,  # type: ignore[arg-type]
+        )
+
     canonical = "|".join(
-        f"{k}:{v.source}:{v.parsed_value}:{v.validation_status}"
+        f"{k}:{v.source}:{_canon_parsed(v.parsed_value)}:{v.validation_status}"
         for k, v in sorted(settings_dict.items())
     )
     h = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -249,7 +369,7 @@ def effective_config() -> EffectiveConfig:
         settings=immutable_settings,
         config_hash=h,
         resolved_at=datetime.now(UTC).isoformat(),
-        paper_mode=immutable_settings["PAPER_MODE"].parsed_value,
-        require_approval=immutable_settings["REQUIRE_APPROVAL"].parsed_value,
-        market_regime_gate=immutable_settings["MARKET_REGIME_GATE"].parsed_value,
+        paper_mode=bool(immutable_settings["PAPER_MODE"].parsed_value),
+        require_approval=bool(immutable_settings["REQUIRE_APPROVAL"].parsed_value),
+        market_regime_gate=bool(immutable_settings["MARKET_REGIME_GATE"].parsed_value),
     )

@@ -30,6 +30,10 @@ from gesh_core.db_path import resolve_db_path as _resolve_db
 DB_PATH = _resolve_db()
 
 
+class LedgerUnavailable(RuntimeError):
+    """Neither paper book is readable. This is not a measured $0 day."""
+
+
 _DDL = """
 CREATE TABLE IF NOT EXISTS trade_intents (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -405,13 +409,14 @@ def paper_realized_pnl_usd_today() -> float:
     Checks BOTH possible paper books in this DB and sums them:
       - paper_outcomes (tracker convention — the engine's autonomy-gate book)
       - trade_log's paper_trades (the product daily-analysis paper sessions)
-    Each is owned elsewhere (not this module's _DDL), so a missing table fails safe
-    to 0.0. In the engine, paper_trades is empty/legacy (rule #20) so this equals the
-    paper_outcomes-only sum; in the product, both contribute. A flat paper day never
-    blocks entries.
+    Each is owned elsewhere (not this module's _DDL). One missing table is
+    expected (engine has no paper_trades; product may have no paper_outcomes)
+    and is skipped. If NEITHER table is readable, raise LedgerUnavailable —
+    that is not a fabricated $0 flat day (Astra R3). Other SQLite errors raise.
     """
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     total = 0.0
+    seen = 0
     with _conn() as con:
         try:
             row = con.execute(
@@ -419,8 +424,10 @@ def paper_realized_pnl_usd_today() -> float:
                 [today + "T00:00:00+00:00"],
             ).fetchone()
             total += float(row["s"] or 0.0)
-        except sqlite3.OperationalError:
-            pass
+            seen += 1
+        except sqlite3.OperationalError as e:
+            if "no such table" not in str(e).lower():
+                raise
         try:
             row = con.execute(
                 "SELECT COALESCE(SUM(realized_pnl), 0.0) AS s FROM paper_trades "
@@ -428,8 +435,14 @@ def paper_realized_pnl_usd_today() -> float:
                 [today],
             ).fetchone()
             total += float(row["s"] or 0.0)
-        except sqlite3.OperationalError:
-            pass
+            seen += 1
+        except sqlite3.OperationalError as e:
+            if "no such table" not in str(e).lower():
+                raise
+    if seen == 0:
+        raise LedgerUnavailable(
+            "neither paper_outcomes nor paper_trades is readable"
+        )
     return total
 
 

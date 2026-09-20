@@ -9,12 +9,14 @@ Inputs per holding: price history (90d), analyst upside, current allocation
 """
 
 import logging
-import math
 import os
+import sys
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
+
+from gesh_core.trading.config import parse_unit_interval
 
 logger = logging.getLogger(__name__)
 
@@ -22,15 +24,11 @@ HALF_KELLY_FACTOR = 0.5   # conservative multiplier
 _DEFAULT_MAX_POSITION_PCT = 0.25
 
 
-def _parse_position_cap(value: str | None, fallback: float) -> float:
-    """Return a finite position cap in the inclusive range [0, 1]."""
-    if value is None:
-        return fallback
-    try:
-        cap = float(value)
-    except (TypeError, ValueError):
-        return fallback
-    return cap if math.isfinite(cap) and 0.0 <= cap <= 1.0 else fallback
+def _parse_position_cap(
+    value: str | None, fallback: float, *, key: str = "KELLY_MAX_POSITION_PCT"
+) -> float:
+    """Finite position cap in the inclusive range [0, 1]. Invalid input raises."""
+    return parse_unit_interval(key, value, fallback)
 
 
 # Per-position hard cap. Env-overridable (KELLY_MAX_POSITION_PCT) but the default
@@ -67,10 +65,11 @@ def _max_position_pct() -> float:
 
 def _max_gross_exposure() -> float:
     """Gross-exposure cap as a fraction (1.0 = 100%). Env KELLY_MAX_GROSS_PCT."""
-    try:
-        return float(os.getenv("KELLY_MAX_GROSS_PCT", str(_DEFAULT_MAX_GROSS_PCT)))
-    except (TypeError, ValueError):
-        return _DEFAULT_MAX_GROSS_PCT
+    return _parse_position_cap(
+        os.getenv("KELLY_MAX_GROSS_PCT"),
+        _DEFAULT_MAX_GROSS_PCT,
+        key="KELLY_MAX_GROSS_PCT",
+    )
 
 
 def _corr_threshold() -> float:
@@ -150,9 +149,15 @@ def _fetch_returns(symbol: str, days: int = 90) -> pd.Series | None:
         except Exception:
             raw = None
         if raw is None or raw.empty:
-            # Yahoo 401/crumb storm — fall back to Robinhood OHLCV.
-            import price_source  # noqa: PLC0415
-            raw = price_source.rh_fallback(symbol, period="2y", interval="1d")
+            # Yahoo 401/crumb storm — fall back to Robinhood OHLCV only when the
+            # host already imported its trusted `price_source`. Discovering that
+            # name via sys.path (cwd is first) would execute a planted module.
+            ps = sys.modules.get("price_source")
+            raw = (
+                ps.rh_fallback(symbol, period="2y", interval="1d")
+                if ps is not None
+                else None
+            )
         if raw is None or raw.empty:
             return None
         raw = raw.tail(days + 10)
@@ -226,9 +231,10 @@ def _volatility_score(returns: np.ndarray) -> str:
     return "EXTREME"
 
 def _max_drawdown(returns: np.ndarray) -> float:
-    cumulative = np.cumprod(1 + returns)
-    running_max = np.maximum.accumulate(cumulative)
-    drawdown = (cumulative - running_max) / running_max
+    """Peak-to-trough drawdown in percent. Starting equity is the first peak."""
+    equity = np.concatenate(([1.0], np.cumprod(1 + returns)))
+    running_max = np.maximum.accumulate(equity)
+    drawdown = (equity - running_max) / running_max
     return float(np.min(drawdown)) * 100  # negative %
 
 def kelly_size_holding(

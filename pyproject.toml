@@ -22,9 +22,8 @@ readme = "README.md"
 #   yfinance — kelly._fetch_returns (module-top import → hard dep); market_fetch
 #              (used by kelly + trading.levels._fetch_atr). pandas comes transitively.
 #   requests — sentiment_connector (Reddit JSON API; praw/nltk optional, lazy).
-# NOTE: kelly._fetch_returns still does a lazy `import price_source` (a HOST-PROVIDED
-# in-repo module, engine/product), resolved against the running process's sys.path —
-# intentionally NOT declarable here, and it degrades gracefully when absent.
+# NOTE: kelly._fetch_returns may call a host `price_source` already in sys.modules
+# (engine/product); it never discovers that name via sys.path. Not a declared dep.
 # (trading.levels._fetch_atr no longer touches the host consensus/price_source — it
 # uses the shared gesh_core.market_fetch instead, as of v0.3.1.)
 dependencies = [
