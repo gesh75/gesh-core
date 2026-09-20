@@ -10,6 +10,7 @@ backtest, or replay history — because the type contract is fixed.
 
 from __future__ import annotations
 
+import math
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -60,9 +61,13 @@ class TradeIntent:
             problems.append(f"target_position_pct must be in [0,1], got {self.target_position_pct}")
         if self.action in ("BUY", "SELL") and self.target_position_pct is None:
             problems.append("BUY/SELL intents require target_position_pct")
-        if self.stop_loss is not None and self.stop_loss <= 0:
+        if self.stop_loss is not None and (
+            not math.isfinite(self.stop_loss) or self.stop_loss <= 0
+        ):
             problems.append("stop_loss must be > 0")
-        if self.take_profit is not None and self.take_profit <= 0:
+        if self.take_profit is not None and (
+            not math.isfinite(self.take_profit) or self.take_profit <= 0
+        ):
             problems.append("take_profit must be > 0")
         if not self.symbol or not self.symbol.isascii() or len(self.symbol) > 12:
             problems.append(f"symbol invalid: {self.symbol!r}")

@@ -31,8 +31,10 @@ def entry_floor_blocks(action: str, raw_score: float, min_entry_score: float) ->
     Consensus `confidence` is DATA COVERAGE (nodes-voted fraction), not signal
     strength — alone it let near-coin-flip weighted scores trade. The floor
     gates BUYs on the consensus raw_score instead. SELL is a managed exit and
-    is NEVER gated; HOLD never reaches execution. Non-finite scores fail closed
-    (NaN/inf comparisons are always False, which would otherwise skip the floor).
+    is NEVER gated; HOLD never reaches execution.
+
+    Non-finite scores fail closed: ``NaN < floor`` is False in IEEE-754, which
+    would otherwise let a missing consensus number through as a new long.
     """
     if action != "BUY":
         return False

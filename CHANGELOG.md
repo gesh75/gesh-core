@@ -27,6 +27,12 @@ literals in `pyproject.toml`, `src/gesh_core/__init__.py`, and
   `auto_trade` is OFF. Paper callers can pass `require_live_permission=False`
   to skip only live execution permission. Returns `ActionCheck` (still
   unpackable as `ok, reason = ...`) with a structured `code`.
+- `validate_action` rejects non-finite / non-numeric trade size on every
+  action, and non-finite cash on BUY/ADD (`NaN > cap` is False in IEEE-754).
+  SELL/TRIM ignore a dirty cash snapshot so emergency exits are not blocked.
+- `entry_floor_blocks` treats non-finite `raw_score` / `min_entry_score` as
+  blocked on BUY. SELL/HOLD stay ungated.
+- `TradeIntent.validate` rejects non-finite stop / take-profit.
 
 ## 0.8.2 — 2026-08-22
 

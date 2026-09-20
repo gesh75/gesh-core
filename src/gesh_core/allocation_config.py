@@ -338,6 +338,31 @@ def validate_action(
             False, "Invalid action — expected BUY, ADD, TRIM, or SELL", "INVALID_ACTION"
         )
 
+    # Non-finite sizes fail closed: ``NaN > cap`` is False in IEEE-754, which
+    # would otherwise let a missing/poisoned size through the dollar cap.
+    if (
+        not isinstance(trade_usd, (int, float))
+        or isinstance(trade_usd, bool)
+        or not math.isfinite(trade_usd)
+    ):
+        return ActionCheck(
+            False, "Invalid trade size — expected a finite number", "INVALID_SIZE"
+        )
+    # Cash only feeds BUY/ADD gates. Rejecting it on SELL/TRIM would block
+    # emergency exits when the broker snapshot is dirty.
+    if (
+        current_cash is not None
+        and action in ("BUY", "ADD")
+        and (
+            not isinstance(current_cash, (int, float))
+            or isinstance(current_cash, bool)
+            or not math.isfinite(current_cash)
+        )
+    ):
+        return ActionCheck(
+            False, "Invalid cash — expected a finite number", "INVALID_CASH"
+        )
+
     # Size / position / cash / price first — never gated on auto_trade.
     if is_options:
         cap = cfg["max_options_per_trade"]

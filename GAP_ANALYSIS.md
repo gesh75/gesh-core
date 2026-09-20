@@ -1,132 +1,162 @@
-# gesh-core gap analysis
+# Gap analysis — gesh-core
 
-Scan date: **2026-09-05**. Tree: branch `cursor/gap-scan-gesh-core-9a8a` off `main` `56f14d4e3a8fd527a9637cc7fb1ce2042c11aee0` (`ci: raise fd limit before pytest (#46)`).
+> Merge note (2026-09-19): `main` (`1ed6f16`, through PR #80) was merged into
+> this branch. Fail-closed NaN guards from this PR are kept. Since the scan
+> below, `main` also landed #65 (parallel gap scan), #77 (R1 allocation
+> permission split), #78 (R3 `LedgerUnavailable`), #79 (R6 numeric safety
+> config), and #80 (R8 max-drawdown starting equity).
 
-This is a **verifiable** scan: every P0 has a file path plus a reproduced failing check, missing test, secret smell, or broken script. No large rewrites. Three small fail-closed patches landed in this PR; everything else is left for a later job.
+Scanned `56f14d4` (`main` = `ci: raise fd limit before pytest (#46)`).
+Date: 2026-09-05. Method: local proofs against installed `src/`, `pytest` +
+`ruff` + `mypy` config, `gh` tags/releases/PRs/Actions, tree + test inventory.
 
-## Method
-
-| Check | Result |
-|---|---|
-| `pip install -e '.[dev]'` | OK |
-| `ruff check src tests` | clean (post-fix) |
-| `mypy src` | clean (post-fix) |
-| `pytest -q` | green (post-fix; was 442 passed on `main`) |
-| CI import-all-modules (`ci.yml` filesystem walk) | 30 non-vendor modules |
-| GitHub Actions on `main` | success, run `33033241239` |
-| This PR required GHA (`lint` + test 3.12/3.13/3.14) | success, run `33942411302` |
-| Buildkite `CI (pull_request)` on this PR | **failed** — importer path-filter eval, not pytest (P1-15) |
-| Latest Git tag | `v0.6.1` (no `v0.7` / `v0.8`) |
-| GitHub Releases | **none** (`gh api …/releases` → `0`) |
-| Root `LICENSE` | **missing** |
-
-Open draft PRs already targeting some of these gaps (`#54` NaN stops, `#60` NaN trade sizes, `#62` sentiment ticker words, `#63` leftover characterization tests). They are **not merged**; the bugs below are still on `main`.
+This is a scan, not a rewrite. Three fail-closed numeric guards landed in the
+same PR; everything else is ranked and left alone.
 
 ---
 
-## P0 — fail-closed / broken / secret-adjacent
+## P0 — fail-open / stale control / unmerged safety work
 
-### P0-1. `kelly._fetch_returns` discovers `price_source` via `sys.path`
+Each item cites a path and the evidence that made it P0.
 
-**File:** `src/gesh_core/kelly.py` (was L154–155)  
-**Sibling already hardened:** `src/gesh_core/market_fetch.py` L72–81 + `tests/test_market_fetch.py` `test_download_does_not_import_untrusted_fallback`
+### P0-1. Entry floor fails open on NaN / ±Inf raw_score
 
-**Evidence (reproduced 2026-09-05):** planted `tmp/price_source.py` that touches a marker, stubbed Yahoo to empty, called `_fetch_returns("NVDA")` → **marker created**. Same fixture against `yf_download_with_retry` does **not** create the marker.
+- **Path:** `src/gesh_core/trading/autopilot_core.py` (`entry_floor_blocks`)
+- **Evidence:** `float("nan") < 0.3` is `False` (IEEE-754). On this SHA, before
+  the fix in this PR:
+  `entry_floor_blocks("BUY", float("nan"), 0.3) is False` — a missing consensus
+  number is treated as *above* the floor and a new long is allowed.
+  `tests/test_autopilot_core.py` parametrized only finite scores.
+- **Fix in this PR:** non-finite `raw_score` / `min_entry_score` now block BUY.
+  SELL/HOLD unchanged.
 
-**Why it matters:** cwd is first on `sys.path`. On the Yahoo 401/crumb path this installed library executed whoever’s `price_source.py` was first. Hosts that already imported their real module are fine; every other caller is not.
+### P0-2. Allocation gate fails open on NaN trade size and NaN cash
 
-**This PR:** only call `sys.modules.get("price_source")` (host already imported). New tests: `test_fetch_returns_does_not_import_untrusted_price_source`, `test_fetch_returns_uses_already_imported_host_price_source`.
+- **Path:** `src/gesh_core/allocation_config.py` (`validate_action`)
+- **Evidence:** with `auto_trade=True` on this SHA, before the fix:
+  `validate_action("BUY", "NVDA", float("nan"), 0, current_cash=100_000)` →
+  `(True, "OK")`. Same for `current_cash=float("nan")`. `NaN > cap` and
+  `NaN < min_cash_buffer` are both `False`, so the dollar cap and cash floor
+  never fire. `inf` was already blocked (`inf > cap`).
+  `tests/test_allocation_config.py` had no non-finite size/cash cases.
+- **Fix in this PR:** non-finite / non-numeric `trade_usd` (all actions) and
+  `current_cash` on BUY/ADD return `(False, "Invalid …")`. SELL/TRIM still
+  ignore a dirty cash snapshot so emergency exits are not blocked.
 
-### P0-2. `docs/consensus_parity.py` is not runnable from a clean checkout
+### P0-3. `TradeIntent.validate` accepts NaN / +Inf stops
 
-**File:** `docs/consensus_parity.py` L3–4  
-**Cited as done:** `docs/CONSENSUS_CONVERGENCE.md` L50 (“6/6 symbols within ±0.05”)
+- **Path:** `src/gesh_core/trading/contract.py` (`TradeIntent.validate`)
+- **Evidence:** before the fix,
+  `TradeIntent(..., stop_loss=float("nan"), take_profit=float("inf")).validate()`
+  returned `[]`. The old check is `stop_loss <= 0`; `NaN <= 0` is `False`.
+  `tests/test_contract.py` only covered `-1` / `0`.
+- **Fix in this PR:** non-finite stop / take-profit are rejected the same as
+  non-positive levels.
 
-**Evidence:**
+### P0-4. Paper daily-loss P&L is UTC-day; order cap is ET-day
 
-```
-ENG="/Users/georgigaydarov/Projects/gesh-project-trading"
-PRD="/Users/georgigaydarov/Projects/gesh-project"
-```
+- **Path:** `src/gesh_core/trading/state.py`
+  - `count_orders_today` (lines ~360–383) uses `America/New_York`.
+  - `paper_realized_pnl_usd_today` (lines ~400–413) uses
+    `datetime.now(UTC).strftime("%Y-%m-%d")` and documents “since 00:00 UTC today”.
+- **Evidence:** the daily-loss breaker (rules #36/#40) and the order-rate cap
+  can disagree for the last 4–5 hours of the ET session. Tests pin the UTC
+  behaviour (`tests/test_state.py` `_today_iso()`), so CI stays green while the
+  two clocks diverge. Draft PR #56 exists; **not fixed here** (needs a
+  behaviour decision + test rewrite, not a one-liner).
 
-Ran from this checkout: exit 0, every symbol `ERR` (`? None`). Hard-coded macOS sibling venvs; neither consumer repo is in this workspace.
+### P0-5. Sentiment ticker match treats English words as mentions
 
-**Not fixed here** (needs env-var paths or a move into the consumer repos; do not fake a parity result).
+- **Path:** `src/gesh_core/sentiment_connector.py` (`_is_relevant`, ~181–194)
+- **Evidence:** `\b{sym}\b` + `re.IGNORECASE` on this SHA:
+  `_is_relevant("I am on the market today", "ON") is True`,
+  `_is_relevant("This is a great stock", "A") is True`,
+  `_is_relevant("it looks good to me", "IT") is True`.
+  `tests/test_sentiment_connector.py` only covers regex escaping, not
+  short-ticker / stop-word collisions. Draft PR #62. **Not fixed here**
+  (needs a word-list / cashtag policy, not a one-liner).
 
-### P0-3. `validate_action` fail-opens on NaN / −inf / negative `trade_usd`
+### P0-6. CASH_FLOOR math returns NaN when live cash is NaN
 
-**File:** `src/gesh_core/allocation_config.py` L249–269  
-**Missing test:** `tests/test_allocation_config.py` covers caps and bad *actions*, not non-finite money.
+- **Path:** `src/gesh_core/trading/risk_gate_core.py` (`_post_trade_cash_estimate`)
+- **Evidence:** `float(eq_summary.get("cash", 0) or 0)` keeps `NaN`
+  (`NaN` is truthy). Proof: estimate with `cash=nan` is `nan`. A downstream
+  `post < floor` comparison then fails open. Draft PR #52. **Not fixed here**
+  (callers live in the consumer repos; changing the return type is not local).
 
-**Evidence (reproduced):** with `auto_trade=True`, `validate_action("BUY", "NVDA", nan|-inf|-1.0, 0, current_cash=100_000)` returned `(True, "OK")`. In IEEE floats `nan > cap` and `-1 > cap` are both `False`.
+### P0-7. Control document names the wrong `main` SHA
 
-**Not fixed here** — draft PR `#60` already owns this change. Still a live P0 on `main`.
-
----
-
-## P1 — correctness / CI / security / missing tests
-
-### Correctness
-
-| ID | Gap | Evidence |
-|---|---|---|
-| P1-1 | Entry-conviction floor fail-opens on NaN/`inf` `raw_score` | `src/gesh_core/trading/autopilot_core.py` (was L35): `raw_score < min_entry_score` is False for NaN. `entry_floor_blocks("BUY", nan, 0.35) is False`. ECG already names this class of bug (`ecg.py` L89–91). **Fixed in this PR.** |
-| P1-2 | `KELLY_MAX_GROSS_PCT` not clamped; sibling cap is | `src/gesh_core/kelly.py` `_max_gross_exposure` used raw `float()`. `KELLY_MAX_GROSS_PCT=inf\|nan\|100` → `inf` / `nan` / `100.0`; overbet overlay never scales. `_parse_position_cap` already exists. **Fixed in this PR.** |
-| P1-3 | `TradeIntent` / ATR levels accept NaN stops | Draft PR `#54`. `not nan` and `nan <= 0` are False; NaN stops persist into `paper_stops`. |
-| P1-4 | Sentiment `_is_relevant` matches English-word tickers | Draft PR `#62`. `\bON\b` / `\bCOST\b` pull whole-subreddit mood into consensus. |
-| P1-5 | Risk numeric env parser accepts `inf` / `nan` / unbounded percents | `src/gesh_core/trading/config.py` L20–29. `MAX_DAILY_LOSS_PCT=inf` → daily-loss breaker never trips (`-0.05 < -inf` is False). |
-| P1-6 | Public ledger `record_analysis_decision` persists secret-named fields | Adapter strips (`ledger/adapters/daily_analysis.py` L124–145); `ledger/integration.py` dumps raw JSON. Adapter-only test: `tests/test_ledger_daily_adapter.py` L224–240. |
-| P1-7 | `dcf.inputs.fetch_dcf_inputs` / `dcf.sensitivity.run_sensitivity` have almost no behavioral tests | Coverage on `main`: inputs ~30%, sensitivity ~17%. `tests/test_dcf.py` monkeypatches fetch; `_base_assumptions` only for sensitivity. |
-
-### CI
-
-| ID | Gap | Evidence |
-|---|---|---|
-| P1-8 | Coverage is informational; no floor | `.github/workflows/ci.yml` L93: `--cov=gesh_core` with no `--cov-fail-under`. `CHANGELOG.md` L28: “informational, no floor yet”. Copilot asks for 80%+ (`.github/copilot-instructions.md` L29); suite is ~75%. |
-| P1-9 | Copilot setup diverges from CI | `copilot-setup-steps.yml`: `checkout@v4`, `setup-python@v5`, `pip install -e '.[dev]'`, no ruff/mypy/pytest. `ci.yml`: `@v5`/`@v6`, `".[test]"`, ruff + mypy + pytest. |
-| P1-10 | `ruff format` not gated | `ci.yml` L36 is `ruff check` only. `ruff format --check src tests` exits 1 (32 files). Do **not** mass-format in this PR. |
-| P1-15 | Buildkite GHA importer fails this PR independently of GitHub-hosted CI | Required jobs on this PR (`lint`, `test` 3.12/3.13/3.14) succeeded (Actions run `33942411302`). Buildkite check `CI (pull_request)` failed: *“Pull_request trigger path filters could not be evaluated safely”* / *“event snapshot requires full lowercase payload.pull_request base, head, and merge commit SHAs”*. `.github/workflows/ci.yml` has **no** `paths:` filter. Same importer previously needed `ulimit -n` (`56f14d4`, #46). Not a test failure. |
-
-### Security / DX / docs (P1)
-
-| ID | Gap | Evidence |
-|---|---|---|
-| P1-11 | Control doc SHA is stale | `PROJECT_CONTROL.md` L12: verified `main` = `97a519b7` (pre-0.8.2). Live `main` is `56f14d4`. CI cite L141–142 is run `31493540985`. |
-| P1-12 | HTML dashboards still say v0.1.0 / 11 modules / 121 tests | `docs/index.html` L43–48; `docs/architecture.html` same era. Reality: **0.8.2**, ~20 shared modules, **442** tests. |
-| P1-13 | Cited profitability memo is missing | `src/gesh_core/trading/config.py` L133 and `levels.py` L36–37 cite `docs/SIGNAL_PROFITABILITY_2026-06.md`. File does not exist. |
-| P1-14 | `.gitignore` misses tool caches | `.mypy_cache/` and `.ruff_cache/` are created by local gates and are not ignored. |
-
----
-
-## P2 — polish / backlog / dead code
-
-| ID | Gap | Evidence |
-|---|---|---|
-| P2-1 | No Git tag / Release past `v0.6.1` | `gh api repos/gesh75/gesh-core/tags`; Releases length 0. Tag-followers install 0.6.1. Owner-only (never move tags). |
-| P2-2 | No root LICENSE / SPDX | Tree has only `src/gesh_core/dcf/vendor/LICENSE-cookbooks`. `pyproject.toml` `[project]` has no `license`. Already backlog in `PROJECT_CONTROL.md` L103 — **do not invent**. |
-| P2-3 | Consumer pins lag (external) | Control doc L80–81: product on `49312393` (v0.8.1), engine on `33af7482` (v0.8.0). Not verifiable from this repo alone. |
-| P2-4 | Vendored `dcf/vendor/sensitivity_analysis.py` is unused at runtime | Zero imports of that module. Local logic is `dcf/sensitivity.py`. Kept for MIT vendor bundle (`NOTICE.md`) — do not delete without a legal pass. |
-| P2-5 | Files over the 400-line Copilot guideline | `ledger/integration.py` 618, `trading/state.py` 550, `kelly.py` 544. Extract later; not a rewrite. |
-| P2-6 | No `CODEOWNERS`, Dependabot, pre-commit | Hygiene only. |
-| P2-7 | `PHASE3_STATUS.md` test counts are historical | “~121 parity tests” was true at Phase 3 close; suite is now 442. Leave as a session log. |
-| P2-8 | Secret denylist misses `client_secret` | `ledger/canonical.py` L30–42 vs this package’s `REDDIT_CLIENT_SECRET`. |
+- **Path:** `PROJECT_CONTROL.md` (header + §8)
+- **Evidence:** document claims verified `main` = `97a519b7…` (PR #34, 2026-08-22).
+  Live `origin/main` is `56f14d4e…` (PR #46, 2026-08-27). Open-PR / “single next
+  action” claims are also stale (27 open draft PRs; see P1-3). This is the same
+  class of drift the doc already admitted for 2026-07-31 → 2026-08-22.
 
 ---
 
-## What this PR changed (≤3 small fixes)
+## P1 — CI, process, coverage, consumers
 
-1. **Kelly fetch:** do not import untrusted `price_source` (P0-1).
-2. **Kelly gross cap:** reuse `_parse_position_cap` for `KELLY_MAX_GROSS_PCT` (P1-2).
-3. **Entry floor:** treat non-finite scores as blocked (P1-1).
+| ID | Gap | Evidence |
+|---|---|---|
+| P1-1 | Latest Git tag is still `v0.6.1`; no GitHub Releases; declared version is `0.8.2` | `gh api …/tags` → `v0.6.1` @ `f11c460f`; `…/releases` length `0`; `pyproject.toml` + `__init__.py` = `0.8.2`. README already warns “never pin a tag”. |
+| P1-2 | CI coverage is informational — no floor | `.github/workflows/ci.yml` has no `--cov-fail-under`. This SHA: **76%** (`pytest --cov=gesh_core`, 450 passed). Copilot instructions ask for 80%+. Lowest: `dcf/sensitivity.py` 17%, `dcf/inputs.py` 30%, `dcf/__main__.py` 0%, `sentiment_connector.py` 57%. |
+| P1-3 | 27 open *draft* PRs (critical-bug + missing-test agents) never merged | `gh pr list --state open` on 2026-09-05. Includes fail-closed work that overlaps P0-2/P0-3/P0-4/P0-5. Process debt, not a code rewrite. |
+| P1-4 | Consumer pin freshness unverifiable from this token | `gh api repos/gesh75/Gesh-Project/contents/requirements.txt` and `gesh-project-trading` → 404. `PROJECT_CONTROL.md` last claimed product @ `49312393` (0.8.1, 1 commit behind *then*) and engine @ `33af7482` (0.8.0, 2 behind *then*). Both are now at least PR #46 behind. |
+| P1-5 | `htmlcov/` and `.sentiment_cache.json` are not gitignored | `.gitignore` has `.coverage` and `gesh_financial.db` but not the HTML cov tree or the sentiment cache written by `sentiment_connector.py`. |
+| P1-6 | Copilot setup workflow pins older Actions than CI | `.github/workflows/copilot-setup-steps.yml` uses `checkout@v4` / `setup-python@v5`; `ci.yml` uses `@v5` / `@v6`. |
 
-No dependency upgrades, no LICENSE invented, no HTML rewrite, no coverage floor, no format-all.
+---
 
-## What was skipped (deliberately)
+## P2 — DX, docs, dead / local-only scripts, size
 
-- Allocation NaN / TradeIntent NaN / sentiment English-word tickers — owned by open draft PRs `#60`, `#54`, `#62`.
-- Parity harness path rewrite, control-doc SHA bump, HTML dashboard refresh, coverage floor, `ruff format --check`.
-- Root LICENSE, tags/releases, consumer pin bumps (owner / other repos).
+| ID | Gap | Evidence |
+|---|---|---|
+| P2-1 | No root `LICENSE` / SPDX | Tree has only `src/gesh_core/dcf/vendor/LICENSE-cookbooks`. Owner call (already backlog in `PROJECT_CONTROL.md`). Do not invent. |
+| P2-2 | `docs/consensus_parity.py` is a laptop-only harness | Hard-coded `/Users/georgigaydarov/Projects/gesh-project-trading` and `gesh-project`. Broken for anyone else; not invoked by CI. |
+| P2-3 | CI import discovery skips `__main__` | `.github/workflows/ci.yml` `if rel.endswith(".__main__"): continue` — `gesh_core.dcf.__main__` is never imported in that step. `python -m gesh_core.dcf` is covered only indirectly. |
+| P2-4 | Files over the 400-line copilot guideline | `ledger/integration.py` 618, `trading/state.py` 550, `kelly.py` 544, `sentiment_connector.py` 457. Extract later; do not split in this PR. |
+| P2-5 | `PHASE3_STATUS.md` is a 2026-06-20 extraction log | Fine as history; still linked from README as if current. Point readers at `PROJECT_CONTROL.md` / this file. |
+| P2-6 | `SENTIMENT_CACHE_FILE` is resolved at import | Same class of bug `CONFIG_PATH` used to have: cwd / env changes after import are ignored. Tests work around it. |
+| P2-7 | Broad `except Exception` on network / cache paths | Annotated `# noqa: BLE001` in `market_fetch`, `sentiment_connector`, `kelly`, `dcf`. Intentional fail-soft; leave unless a path should fail closed. |
+
+---
+
+## What this PR changed (3 fixes only)
+
+1. `entry_floor_blocks` — fail closed on non-finite scores.
+2. `validate_action` — fail closed on non-finite trade size / cash.
+3. `TradeIntent.validate` — fail closed on non-finite stop / take-profit.
+
+No dependency upgrades, no LICENSE invented, no tag cut, no consumer-pin
+edits (other repos), no sentiment / timezone / CASH_FLOOR rewrites.
+
+---
+
+## What was proved vs skipped
+
+**Proved**
+
+- IEEE-754 fail-open on the three gates above (interpreter + failing tests
+  written first against `56f14d4` behaviour).
+- Tag/release gap (`v0.6.1`, zero Releases).
+- `PROJECT_CONTROL.md` SHA is two merged commits behind live `main`.
+- Sentiment short-ticker false positives; UTC vs ET paper-P&L split;
+  CASH_FLOOR NaN estimate (left unfixed; see P0-4/5/6).
+- Main CI on `56f14d4` was green (Actions run `33033241239`).
+- No root LICENSE; `.gitignore` misses `htmlcov/` and `.sentiment_cache.json`.
+
+**Skipped (on purpose)**
+
+- Large fail-closed draft PRs (#43–#63) — review/merge separately; do not
+  re-implement them here.
+- Consumer pin bumps — other repositories; API 404 from this token.
+- Coverage floor, LICENSE, annotated `v0.8.2` tag — owner / release ritual.
+- File splits, sentiment word-list, ET paper-P&L rewrite.
+
+---
 
 ## Next recommended agent job
 
-Merge or re-land the existing fail-closed drafts (`#54`, `#60`, `#62`) on `main`, then add a network-free `validate_action` NaN/negative characterization test if `#60` does not already include one.
+Land P0-4 (ET-day `paper_realized_pnl_usd_today` + rewrite `tests/test_state.py`
+clock) *or* triage-merge the oldest green draft fail-closed PRs so 27 drafts
+stop rotting — do not open another scan until one of those ships.
