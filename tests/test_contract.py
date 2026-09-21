@@ -210,6 +210,23 @@ def test_adapters_accept_explicit_provenance(adapter):
 # ─── confidence semantics (audit PR4 — resolved as division of labor) ────────
 
 
+def test_from_consensus_uppercases_symbol():
+    """Parity with manual() / stop_sweep_intent — mixed-case vendor tickers
+    must not open a paper position under a different key than the stop SELL.
+    """
+    intent = from_consensus(
+        {
+            "symbol": "nvda",
+            "verdict": "BUY",
+            "raw_score": 0.6,
+            "confidence": 80,
+            "active_nodes": 8,
+            "total_nodes": 11,
+        }
+    )
+    assert intent.symbol == "NVDA"
+
+
 def test_from_consensus_confidence_is_participation_not_conviction():
     """confidence stays 0..1 participation (data coverage). Conviction is
     gated separately by the P2 entry floor on raw_score
