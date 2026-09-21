@@ -91,6 +91,28 @@ _BULL_WORDS = {"buy", "long", "calls", "moon", "bullish", "strong", "undervalued
 _BEAR_WORDS = {"sell", "short", "puts", "bearish", "crash", "overvalued",
                "miss", "downgrade", "red", "dump", "avoid", "cut"}
 
+# Tickers that are ordinary English. A case-insensitive `\bON\b` / `\bCOST\b`
+# match scores unrelated prose ("thoughts on NVDA", "the cost of") as if it
+# mentioned ON Semiconductor or Costco, and the vote then feeds consensus.
+# Cashtag-only names (1–2 letters, function words, trading verbs) require `$`.
+# Other English-word tickers may match as an all-caps bare token (COST, not cost).
+_CASHTAG_ONLY_TICKERS = frozenset({
+    # Trading actions — ALL CAPS posts shout these constantly.
+    "HOLD", "SELL", "BUY", "ADD", "TRIM", "CALL", "LONG", "BEAR", "BULL",
+    # Closed-class / function words. "ARE WE ALL IN NOW" is not Allstate.
+    "ALL", "ARE", "CAN", "FOR", "HAS", "NEW", "NOW", "OLD", "ONE", "OUT",
+    "YOU", "LOW", "RUN",
+})
+_ENGLISH_WORD_TICKERS = frozenset({
+    *_CASHTAG_ONLY_TICKERS,
+    "COST", "SHOP", "TEAM", "BILL", "FAST", "WELL", "OPEN",
+    "PLAY", "NET", "APP", "BOX", "ARM", "KEY", "GAP", "CAT", "COP",
+    "ICE", "SEE", "TAP", "FOX", "META", "SNAP", "COIN", "SNOW", "DASH",
+    "HOOD", "SPOT", "POST", "GOLD", "PLUS", "REAL", "GOOD", "BEST", "CARE",
+    "LIFE", "HOPE", "LOVE", "GROW", "SAFE", "RISK", "FUND", "BOND", "RATE",
+    "GAIN", "LOSS", "MOVE", "HIGH", "DOWN", "PEAK", "RISE", "FALL",
+})
+
 
 # ── Env key loader ────────────────────────────────────────────────────────────
 
@@ -182,16 +204,19 @@ def _is_relevant(text: str, symbol: str) -> bool:
     """Check if text meaningfully mentions the ticker (not just noise)."""
     # re.escape: class-share tickers (BRK.B, BF.B) contain a regex dot that would
     # otherwise match any character and pull in unrelated posts.
-    sym = re.escape(symbol.upper())
-    # Match $NVDA, NVDA, or full company tickers
-    patterns = [
-        rf"\${sym}\b",
-        rf"\b{sym}\b",
-    ]
-    for p in patterns:
-        if re.search(p, text, re.IGNORECASE):
-            return True
-    return False
+    ticker = symbol.upper()
+    sym = re.escape(ticker)
+    # $TICKER is unambiguous for every symbol, including A / ON / COST.
+    if re.search(rf"\${sym}\b", text, re.IGNORECASE):
+        return True
+    # 1–2 letter tickers collide with English (a, on, it, so, be). Require $.
+    # Function words and trading verbs collide even when the post is ALL CAPS.
+    if len(ticker) <= 2 or ticker in _CASHTAG_ONLY_TICKERS:
+        return False
+    # English-word tickers: allow an all-caps bare token (COST, not cost).
+    if ticker in _ENGLISH_WORD_TICKERS:
+        return re.search(rf"\b{sym}\b", text) is not None
+    return re.search(rf"\b{sym}\b", text, re.IGNORECASE) is not None
 
 
 # ── Reddit fetch via praw ────────────────────────────────────────────────────
