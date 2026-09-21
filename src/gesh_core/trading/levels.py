@@ -8,11 +8,43 @@ etc. keep working.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 from datetime import UTC, datetime
 
 _log = logging.getLogger(__name__)
+
+
+def _env_int(key: str, default: int, *, minimum: int | None = None) -> int:
+    """Parse an int env var, matching trading.config's empty-string fallback.
+
+    Launchd plists and .env files commonly set EQUITY_ATR_PERIOD= (empty).
+    Bare ``int("")`` would crash this module on import and leave paper
+    positions without any stop ladder.
+    """
+    raw = os.getenv(key)
+    if raw is None or raw == "":
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    if minimum is not None and value < minimum:
+        return default
+    return value
+
+
+def _env_float(key: str, default: float) -> float:
+    """Parse a finite float env var; empty / junk / NaN / inf → default."""
+    raw = os.getenv(key)
+    if raw is None or raw == "":
+        return default
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return default
+    return value if math.isfinite(value) else default
 
 # ── flat default ladder ───────────────────────────────────────────────────────────
 # When an intent carries no explicit stop/target, derive one so the close-scan has
@@ -40,11 +72,11 @@ DEFAULT_TARGET_PCT: float = 0.12   # 12 % take-profit above (BUY) / below (SELL)
 # MAX cap widened 8 %→15 % to match the grid's clamp so a 3×ATR stop isn't capped
 # tighter than what was validated. Any fetch/ATR failure → flat DEFAULT_* fallback.
 EQUITY_USE_ATR_STOPS   = os.getenv("EQUITY_USE_ATR_STOPS", "1") not in ("0", "false", "False")
-EQUITY_ATR_PERIOD      = int(os.getenv("EQUITY_ATR_PERIOD", "14"))
-EQUITY_ATR_STOP_MULT   = float(os.getenv("EQUITY_ATR_STOP_MULT", "3.0"))   # OOS-validated 2026-06-15
-EQUITY_MIN_STOP_PCT    = float(os.getenv("EQUITY_MIN_STOP_PCT", "0.03"))   # floor: never tighter than 3 %
-EQUITY_MAX_STOP_PCT    = float(os.getenv("EQUITY_MAX_STOP_PCT", "0.15"))   # cap:   never wider   than 15 %
-EQUITY_ATR_TARGET_MULT = float(os.getenv("EQUITY_ATR_TARGET_MULT", "5.0")) # target = entry ± TARGET_MULT × ATR
+EQUITY_ATR_PERIOD      = _env_int("EQUITY_ATR_PERIOD", 14, minimum=1)
+EQUITY_ATR_STOP_MULT   = _env_float("EQUITY_ATR_STOP_MULT", 3.0)   # OOS-validated 2026-06-15
+EQUITY_MIN_STOP_PCT    = _env_float("EQUITY_MIN_STOP_PCT", 0.03)   # floor: never tighter than 3 %
+EQUITY_MAX_STOP_PCT    = _env_float("EQUITY_MAX_STOP_PCT", 0.15)   # cap:   never wider   than 15 %
+EQUITY_ATR_TARGET_MULT = _env_float("EQUITY_ATR_TARGET_MULT", 5.0) # target = entry ± TARGET_MULT × ATR
 
 
 def _atr_levels(
