@@ -22,7 +22,7 @@ never by tag — the latest Git tag is still `v0.6.1`.
 
 - **[docs/architecture.html](docs/architecture.html)** — interactive architecture dashboard (module map, shim pattern, DB resolution).
 - **[docs/consensus-comparison.html](docs/consensus-comparison.html)** — engine vs product consensus + convergence roadmap.
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CONSENSUS_CONVERGENCE.md](docs/CONSENSUS_CONVERGENCE.md) · [docs/LEDGER_PHASE4A.md](docs/LEDGER_PHASE4A.md) · [PHASE3_STATUS.md](PHASE3_STATUS.md) · [CHANGELOG.md](CHANGELOG.md)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/DCF.md](docs/DCF.md) · [docs/CONSENSUS_CONVERGENCE.md](docs/CONSENSUS_CONVERGENCE.md) · [docs/LEDGER_PHASE4A.md](docs/LEDGER_PHASE4A.md) · [PHASE3_STATUS.md](PHASE3_STATUS.md) · [CHANGELOG.md](CHANGELOG.md)
 
 ## Why
 
@@ -48,7 +48,9 @@ src/gesh_core/
 ```
 
 Phase 3 de-drift is complete. Phase 4A (decision ledger) and `gesh_core.dcf`
-(deterministic valuation) landed afterwards.
+(deterministic valuation) landed afterwards. `main` after 0.8.2 also carries
+the fail-closed numeric/permission batch and `precision_overlay_blocks` —
+see `CHANGELOG.md` Unreleased and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Local install (each consumer repo)
 

@@ -3,7 +3,8 @@
 | Doc | What |
 |---|---|
 | **[architecture.html](architecture.html)** | Interactive architecture dashboard — module map, shim pattern, DB resolution, deferred set. Open in a browser. |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Same, as markdown (current as of 0.8.2). |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Same, as markdown (current as of `a6d287bb` / 0.8.2 + Unreleased). |
+| [DCF.md](DCF.md) | Deterministic DCF API, methodology, refusals, CLI. |
 | **[consensus-comparison.html](consensus-comparison.html)** | Engine 11-node vs product 9-node dashboard + the staged convergence roadmap. |
 | [CONSENSUS_CONVERGENCE.md](CONSENSUS_CONVERGENCE.md) | Consensus convergence proposal + plan (markdown). |
 | [LEDGER_PHASE4A.md](LEDGER_PHASE4A.md) | Decision-ledger schema, hash contracts, tenant isolation. |
