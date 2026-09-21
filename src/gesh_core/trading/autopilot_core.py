@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Any
 
 from .contract import TradeIntent
 
@@ -86,3 +89,77 @@ def stop_sweep_intent(symbol: str, price: float, stop: float, book: str) -> Trad
         target_position_pct=0.0,
         rationale=f"EOD stop-loss breach ({book}): price={price:.2f} stop={stop:.2f}",
     )
+
+
+@dataclass(frozen=True)
+class OverlayDecision:
+    """Result of the win-priority precision overlay."""
+
+    blocked: bool
+    reason: str = ""
+
+
+def precision_overlay_blocks(action: str, row: Any = None) -> OverlayDecision:
+    """Second-stage precision overlay on consensus BUYs.
+
+    Vetoes BUY entries on:
+      1. Rel.Strength == -1 (highest-IC node) even on STRONG BUY.
+      2. Price confirmation failed: neither Momentum nor Trend is bullish (+1),
+         when either node is present in votes.
+      3. Net bullish votes (bullish - bearish) < 2 or bearish > bullish.
+      4. Macro == -1 unless verdict is STRONG BUY and Rel.Strength == 1.
+
+    Pure. No I/O. SELL/HOLD are never blocked.
+    Missing/empty votes fail OPEN (the score floor still applies).
+    Disabled when environment PRECISION_OVERLAY in {'0', 'false', 'off'}.
+    """
+    if action != "BUY":
+        return OverlayDecision(False, "")
+
+    if not row or not isinstance(row, dict):
+        return OverlayDecision(False, "")
+
+    flag = os.getenv("PRECISION_OVERLAY", "1").strip().lower()
+    if flag in {"0", "false", "off"}:
+        return OverlayDecision(False, "")
+
+    votes = row.get("votes")
+    if votes is None or not isinstance(votes, dict) or not votes:
+        return OverlayDecision(False, "")
+
+    # 1. Rel.Strength veto
+    if votes.get("Rel.Strength") == -1:
+        return OverlayDecision(True, "Rel.Strength is bearish (-1)")
+
+    # 2. Price confirmation (Momentum or Trend must confirm)
+    if "Momentum" in votes or "Trend" in votes:
+        if votes.get("Momentum") != 1 and votes.get("Trend") != 1:
+            return OverlayDecision(
+                True,
+                "Price confirmation failed: neither Momentum nor Trend is bullish (+1)",
+            )
+
+    # 3. Net votes / majority floor
+    if "bullish" in row and "bearish" in row and row["bullish"] is not None and row["bearish"] is not None:
+        bullish = int(row["bullish"])
+        bearish = int(row["bearish"])
+    else:
+        bullish = sum(1 for v in votes.values() if v == 1)
+        bearish = sum(1 for v in votes.values() if v == -1)
+
+    if bearish > bullish:
+        return OverlayDecision(True, f"Majority is bearish: {bearish} bears > {bullish} bulls")
+
+    if (bullish - bearish) < 2:
+        return OverlayDecision(True, f"Net bullish votes below threshold: {bullish - bearish} < 2")
+
+    # 4. Macro bearish veto
+    if votes.get("Macro") == -1:
+        verdict = str(row.get("verdict", "") or row.get("action", "")).upper()
+        if verdict == "STRONG BUY" and votes.get("Rel.Strength") == 1:
+            pass
+        else:
+            return OverlayDecision(True, "Macro is bearish (-1)")
+
+    return OverlayDecision(False, "")
+
