@@ -5,6 +5,7 @@ on. The engine keeps its own tests/test_gesh_core_candidates.py exercising the
 same code through the shim; these prove gesh-core is self-contained (the
 relative ``from .indicators import atr`` resolves inside the package).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -20,8 +21,8 @@ def test_modules_load_from_gesh_core():
 def test_flat_default_levels_buy():
     # No ATR value, ATR fetch path skipped (atr_value passed) -> flat ladder.
     stop, target = levels._derive_levels("BUY", 100.0, None, None, atr_value=None, symbol=None)
-    assert stop == 95.0      # 5% protective stop
-    assert target == 112.0   # 12% take-profit
+    assert stop == 95.0  # 5% protective stop
+    assert target == 112.0  # 12% take-profit
 
 
 def test_flat_default_levels_sell_inverted():
@@ -39,7 +40,7 @@ def test_atr_levels_buy_clamped():
     # ATR distance within [MIN, MAX] band -> entry ± multiples.
     stop, target = levels._atr_levels("BUY", 100.0, 2.0)
     # risk = clamp(3.0*2.0=6.0, 3%..15% of 100) = 6.0 ; reward = 5.0*2.0 = 10.0
-    assert stop == 94.0    # 100 - 6.0
+    assert stop == 94.0  # 100 - 6.0
     assert target == 110.0  # 100 + 10.0
 
 
@@ -61,10 +62,33 @@ def test_atr_sell_target_floored_positive():
     # A negative short take-profit can never fill; it must floor at a positive tick.
     stop, target = levels._atr_levels("SELL", 2.0, 0.5)
     assert target is not None and target > 0
-    assert stop is not None and stop > 2.0                 # stop stays above entry
+    assert stop is not None and stop > 2.0  # stop stays above entry
 
 
 def test_atr_buy_levels_unchanged_by_floor():
     stop, target = levels._atr_levels("BUY", 100.0, 1.0)
-    assert stop == 97.0                                    # 3*ATR clamped to [3%,15%]
-    assert target == 105.0                                 # 5*ATR
+    assert stop == 97.0  # 3*ATR clamped to [3%,15%]
+    assert target == 105.0  # 5*ATR
+
+
+def test_derive_levels_fills_gaps_from_provided_atr():
+    """Passing atr_value must take the adaptive path, not the 5/12 flat ladder."""
+    stop, target = levels._derive_levels("BUY", 100.0, None, None, atr_value=2.0, symbol=None)
+    assert stop == 94.0
+    assert target == 110.0
+
+
+def test_derive_levels_preserves_explicit_stop_and_fills_target_from_atr():
+    stop, target = levels._derive_levels("BUY", 100.0, 91.0, None, atr_value=2.0, symbol=None)
+    assert stop == 91.0
+    assert target == 110.0
+
+
+def test_atr_levels_inverted_min_max_env_never_exceeds_the_tighter_cap(monkeypatch):
+    """A MIN>MAX misconfig must still clamp risk to the intended (ordered) max."""
+    monkeypatch.setattr(levels, "EQUITY_MIN_STOP_PCT", 0.20)
+    monkeypatch.setattr(levels, "EQUITY_MAX_STOP_PCT", 0.03)
+    stop, target = levels._atr_levels("BUY", 100.0, 50.0)  # 3×ATR = $150, far outside
+    # lo=3, hi=20 of a $100 entry → risk capped at $20, not $150 and not $20-from-min.
+    assert stop == 80.0
+    assert target == 100.0 + 5.0 * 50.0
