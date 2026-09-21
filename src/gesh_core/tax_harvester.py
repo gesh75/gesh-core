@@ -163,12 +163,23 @@ def get_wash_status(ticker: str) -> dict[str, Any]:
     if row is None:
         return {"in_wash_window": False, "wash_safe_date": None, "days_remaining": 0}
     wash_safe = row["wash_safe_date"]
-    in_window  = wash_safe > today_str
-    days_rem   = (date.fromisoformat(wash_safe) - date.today()).days if in_window else 0
+    # Inclusive: IRS Pub 550 is "within 30 days after the sale". A sale on
+    # Jan 1 has a last blocked day of Jan 31 (sale + 30). `>` treated that
+    # stored date as already safe, so a repurchase on wash_safe_date was a
+    # wash sale and the harvested loss could be disallowed.
+    in_window  = wash_safe >= today_str
+    if in_window:
+        days_rem = (date.fromisoformat(wash_safe) - date.today()).days
+        # wash_safe_date is the last blocked day. A 0 delta still means
+        # today is blocked — report 1 so days_until_safe cannot read as
+        # cleared while in_wash_window is True.
+        days_rem = max(1, days_rem)
+    else:
+        days_rem = 0
     return {
         "in_wash_window":  in_window,
         "wash_safe_date":  wash_safe,
-        "days_remaining":  max(0, days_rem),
+        "days_remaining":  days_rem,
     }
 
 
@@ -176,6 +187,8 @@ def record_harvest(ticker: str, sale_price: float, loss_usd: float) -> None:
     """Log a tax-loss harvest event and start the 30-day wash-sale clock."""
     init_wash_sale_table()
     sale_date  = date.today().isoformat()
+    # Last calendar day of the 30-day-after window (inclusive). get_wash_status
+    # treats this date as still blocked.
     safe_date  = (date.today() + timedelta(days=WASH_SALE_DAYS)).isoformat()
     with _get_conn() as conn:
         conn.execute(

@@ -132,6 +132,39 @@ def test_unknown_ticker_no_wash_window():
         "in_wash_window": False, "wash_safe_date": None, "days_remaining": 0}
 
 
+def test_wash_window_includes_day_30(monkeypatch):
+    """Repurchase on sale+30 is still a wash sale (IRS Pub 550).
+
+    Trigger: harvest on 2026-01-01, rebuy on the stored wash_safe_date
+    (2026-01-31). The old `>` comparison cleared the window that morning.
+    """
+
+    class FrozenDate(th.date):
+        _today = th.date(2026, 1, 1)
+
+        @classmethod
+        def today(cls):
+            return cls._today
+
+    monkeypatch.setattr(th, "date", FrozenDate)
+    th.record_harvest("WWW", sale_price=10.0, loss_usd=600.0)
+    assert th.get_wash_status("WWW")["wash_safe_date"] == "2026-01-31"
+
+    FrozenDate._today = th.date(2026, 1, 31)
+    last_day = th.get_wash_status("WWW")
+    assert last_day["in_wash_window"] is True
+    assert last_day["days_remaining"] == 1
+    positions = {"WWW": {"price": 8.0, "quantity": 100, "average_buy_price": 20.0}}
+    scanned = th.scan_tax_loss_candidates(positions)[0]
+    assert scanned["status"] == "IN_WASH_WINDOW"
+    assert scanned["days_until_safe"] == 1
+
+    FrozenDate._today = th.date(2026, 2, 1)
+    clear = th.get_wash_status("WWW")
+    assert clear["in_wash_window"] is False
+    assert clear["days_remaining"] == 0
+
+
 # ─── get_harvest_summary ──────────────────────────────────────────────────────
 
 def test_harvest_summary_counts_and_generated_at():
