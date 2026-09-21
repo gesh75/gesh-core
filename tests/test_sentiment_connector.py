@@ -6,6 +6,8 @@ path resolution (the __file__ gotcha fixed during extraction).
 """
 from __future__ import annotations
 
+import pytest
+
 from gesh_core import sentiment_connector as sc
 
 
@@ -106,6 +108,75 @@ def test_is_relevant_escapes_regex_metachars():
     assert sc._is_relevant("thoughts on $BRK.B today", "BRK.B")
     assert not sc._is_relevant("BRKAB is unrelated", "BRK.B")
     assert sc._is_relevant("NVDA to the moon", "NVDA")
+
+
+def _force_keyword_scoring(monkeypatch) -> None:
+    """VADER is optional; pin the keyword fallback so these tests stay deterministic."""
+    monkeypatch.setattr(sc, "_HAS_VADER", False)
+    monkeypatch.setattr(sc, "_SIA", None)
+
+
+def test_score_text_keyword_fallback_is_signed_and_empty_safe(monkeypatch):
+    _force_keyword_scoring(monkeypatch)
+    assert sc._score_text("buy long moon") == pytest.approx(1.0)
+    assert sc._score_text("sell short crash") == pytest.approx(-1.0)
+    assert sc._score_text("buy sell") == pytest.approx(0.0)
+    assert sc._score_text("") == 0.0
+    assert sc._score_text("the weather is fine") == 0.0
+
+
+def test_get_reddit_sentiment_two_posts_is_insufficient(monkeypatch, tmp_path):
+    # Consensus must ABSTAIN below 3 posts even when the text is strongly signed.
+    _force_keyword_scoring(monkeypatch)
+    monkeypatch.setattr(sc, "SENTIMENT_CACHE_FILE", tmp_path / ".cache.json")
+    posts = [
+        {"text": "NVDA buy long moon", "score": 50, "weight": 1.0, "source": "stocks"},
+        {"text": "NVDA buy long moon", "score": 40, "weight": 1.0, "source": "investing"},
+    ]
+    monkeypatch.setattr(sc, "_fetch_praw", lambda s: posts)
+
+    result = sc.get_reddit_sentiment("NVDA", force_refresh=True)
+    assert result["overall"] == "INSUFFICIENT"
+    assert result["post_count"] == 2
+    assert result["data_source"] == "praw"
+
+
+@pytest.mark.parametrize(
+    ("texts", "expected"),
+    [
+        (("NVDA buy long moon", "NVDA buy long moon", "NVDA buy long moon"), "BULLISH"),
+        (("NVDA sell short crash", "NVDA sell short crash", "NVDA sell short crash"), "BEARISH"),
+        (("NVDA weather fine", "NVDA weather fine", "NVDA weather fine"), "NEUTRAL"),
+    ],
+)
+def test_get_reddit_sentiment_classifies_keyword_majority(monkeypatch, tmp_path, texts, expected):
+    _force_keyword_scoring(monkeypatch)
+    monkeypatch.setattr(sc, "SENTIMENT_CACHE_FILE", tmp_path / ".cache.json")
+    posts = [
+        {"text": text, "score": 10, "weight": 1.0, "source": "stocks"} for text in texts
+    ]
+    monkeypatch.setattr(sc, "_fetch_praw", lambda s: posts)
+
+    result = sc.get_reddit_sentiment("NVDA", force_refresh=True)
+    assert result["overall"] == expected
+    assert result["post_count"] == 3
+
+
+def test_get_reddit_sentiment_falls_back_to_json_api_when_praw_empty(monkeypatch, tmp_path):
+    _force_keyword_scoring(monkeypatch)
+    monkeypatch.setattr(sc, "SENTIMENT_CACHE_FILE", tmp_path / ".cache.json")
+    json_posts = [
+        {"text": "NVDA buy long moon", "score": 10, "weight": 1.0, "source": "stocks"},
+        {"text": "NVDA buy long moon", "score": 10, "weight": 1.0, "source": "investing"},
+        {"text": "NVDA buy long moon", "score": 10, "weight": 1.0, "source": "StockMarket"},
+    ]
+    monkeypatch.setattr(sc, "_fetch_praw", lambda s: [])
+    monkeypatch.setattr(sc, "_fetch_json_api", lambda s: json_posts)
+
+    result = sc.get_reddit_sentiment("NVDA", force_refresh=True)
+    assert result["data_source"] == "json_api"
+    assert result["overall"] == "BULLISH"
+    assert result["post_count"] == 3
 
 
 def test_summary_never_contains_raw_post_text(monkeypatch, tmp_path):
