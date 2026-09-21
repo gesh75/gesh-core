@@ -6,6 +6,12 @@ literals in `pyproject.toml`, `src/gesh_core/__init__.py`, and
 
 ## Unreleased
 
+### Docs
+- `docs/DCF.md` added. `ARCHITECTURE.md`, HTML dashboards, and
+  `PROJECT_CONTROL.md` brought current to `a6d287bb` (PR #88): 17 surfaces,
+  426 tests, path-only `resolve_db_path`, numeric-spec parsers, allocation
+  permission split, `LedgerUnavailable`, precision overlay, env catalog.
+
 ### Fixed
 - `resolve_db_path` is path-only: no mkdir, connect, or CREATE/DROP at import
   or collection. Writability is an explicit `ensure_db_writable` bootstrap

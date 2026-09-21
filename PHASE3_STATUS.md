@@ -227,6 +227,10 @@ moving them broke those seams. The underlying P&L computation is already shared 
 
 > **Phase 3 is complete.** No remaining de-drift work; what's per-repo is intentional.
 
+> Current inventory (17 surfaces, 426 tests, post-0.8.2 fail-closed batch +
+> overlay) lives in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). This file
+> is the 2026-06-20 extraction log.
+
 ## Rollback
 
 - Pre-Phase-3 baseline: tag `backup/pre-phase3-2026-06-19` (both repos) +
