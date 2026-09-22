@@ -99,6 +99,25 @@ class OverlayDecision:
     reason: str = ""
 
 
+def _finite_vote_count(value: Any) -> int | None:
+    """Coerce a consensus bullish/bearish tally, or None if unusable.
+
+    Scan rows persist these as ints, but a pandas/SQL REAL can arrive as NaN,
+    and JSON/CSV exports as a blank or decimal string. ``int(nan)`` and
+    ``int(inf)`` raise and would abort the whole BUY funnel; treat that as a
+    missing pair so the overlay can count the vote dict instead.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number) or number < 0:
+        return None
+    return int(number)
+
+
 def precision_overlay_blocks(action: str, row: Any = None) -> OverlayDecision:
     """Second-stage precision overlay on consensus BUYs.
 
@@ -111,6 +130,8 @@ def precision_overlay_blocks(action: str, row: Any = None) -> OverlayDecision:
 
     Pure. No I/O. SELL/HOLD are never blocked.
     Missing/empty votes fail OPEN (the score floor still applies).
+    Unusable bullish/bearish tallies fall back to counting the vote dict —
+    they must not raise (NaN/inf/blank would otherwise crash the funnel).
     Disabled when environment PRECISION_OVERLAY in {'0', 'false', 'off'}.
     """
     if action != "BUY":
@@ -140,10 +161,9 @@ def precision_overlay_blocks(action: str, row: Any = None) -> OverlayDecision:
             )
 
     # 3. Net votes / majority floor
-    if "bullish" in row and "bearish" in row and row["bullish"] is not None and row["bearish"] is not None:
-        bullish = int(row["bullish"])
-        bearish = int(row["bearish"])
-    else:
+    bullish = _finite_vote_count(row["bullish"]) if "bullish" in row else None
+    bearish = _finite_vote_count(row["bearish"]) if "bearish" in row else None
+    if bullish is None or bearish is None:
         bullish = sum(1 for v in votes.values() if v == 1)
         bearish = sum(1 for v in votes.values() if v == -1)
 
