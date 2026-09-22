@@ -240,3 +240,86 @@ def test_env_off_values(monkeypatch, flag):
     monkeypatch.setenv("PRECISION_OVERLAY", flag)
     row = _row(votes=_agreeing_votes(**{"Rel.Strength": -1}))
     assert precision_overlay_blocks("BUY", row).blocked is False
+
+
+# ── unusable counts must not crash the funnel ─────────────────────────────────
+
+def _healthy_votes():
+    return _agreeing_votes()
+
+
+@pytest.mark.parametrize(
+    "bullish,bearish",
+    [
+        (float("nan"), 1),
+        (4, float("nan")),
+        (float("nan"), float("nan")),
+        (float("inf"), 1),
+        (4, float("inf")),
+        (float("-inf"), 0),
+        ("", 0),
+        ("4.9", "2.1"),
+        ([], 0),
+        ({}, 0),
+        (True, False),
+        (-1, 0),
+        (3, -1),
+    ],
+)
+def test_unusable_counts_fall_back_to_vote_tally(bullish, bearish):
+    """A pandas/SQL NaN or JSON-blank tally used to raise and abort every BUY.
+
+    The vote dict is still healthy (4 bull / 0 bear after Rel.Strength/price
+    pass), so the overlay must keep running and admit the entry.
+    """
+    d = precision_overlay_blocks(
+        "BUY",
+        _row(votes=_healthy_votes(), bullish=bullish, bearish=bearish),
+    )
+    assert d.blocked is False
+    assert d.reason == ""
+
+
+def test_unusable_counts_still_apply_net_floor_from_votes():
+    """Fallback must count the votes, not skip the net-vote rule."""
+    # 3 bull, 1 bear → net 2. Poisoned 0/0 would block if trusted.
+    passing = {
+        "Momentum": 1,
+        "Trend": 1,
+        "Rel.Strength": 1,
+        "Volume": 0,
+        "Macro": 0,
+        "Fundamentals": -1,
+        "Analyst": 0,
+        "News": 0,
+        "ECG": 0,
+    }
+    d = precision_overlay_blocks(
+        "BUY",
+        _row(votes=passing, bullish=float("nan"), bearish=float("nan")),
+    )
+    assert d.blocked is False
+
+    # 2 bull, 1 bear → net 1 < 2. Momentum still confirms price.
+    thin = {
+        "Momentum": 1,
+        "Trend": 0,
+        "Rel.Strength": 1,
+        "Volume": -1,
+        "Macro": 0,
+    }
+    d = precision_overlay_blocks(
+        "BUY",
+        _row(votes=thin, bullish=float("nan"), bearish=0),
+    )
+    assert d.blocked is True
+    assert "net" in d.reason.lower()
+
+
+def test_sell_with_nan_counts_never_blocked():
+    d = precision_overlay_blocks(
+        "SELL",
+        _row(verdict="SELL", votes=_agreeing_votes(), bullish=float("nan"), bearish=float("inf")),
+    )
+    assert d.blocked is False
+    assert d.reason == ""
