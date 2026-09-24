@@ -9,6 +9,7 @@ Inputs per holding: price history (90d), analyst upside, current allocation
 """
 
 import logging
+import math
 import os
 import sys
 
@@ -16,7 +17,7 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
-from gesh_core.trading.config import parse_unit_interval
+from gesh_core.trading.config import ConfigError, parse_unit_interval
 
 logger = logging.getLogger(__name__)
 
@@ -73,11 +74,31 @@ def _max_gross_exposure() -> float:
 
 
 def _corr_threshold() -> float:
-    """Correlation clustering threshold. Env KELLY_CORR_THRESHOLD."""
+    """Correlation clustering threshold. Env KELLY_CORR_THRESHOLD.
+
+    Finite inclusive-[0, 1] like the other Kelly caps. ``NaN >= |corr|`` is
+    False for every pair, which would skip the diversification haircut and
+    overbet a correlated cluster (EXA's #1 Kelly mistake).
+    """
+    return parse_unit_interval(
+        "KELLY_CORR_THRESHOLD",
+        os.getenv("KELLY_CORR_THRESHOLD"),
+        _DEFAULT_CORR_THRESHOLD,
+    )
+
+
+def _finite_env_float(key: str, default: float) -> float:
+    """Finite env float. Empty/missing keeps ``default``; invalid raises."""
+    raw = os.getenv(key)
+    if raw is None or raw.strip() == "":
+        return default
     try:
-        return float(os.getenv("KELLY_CORR_THRESHOLD", str(_DEFAULT_CORR_THRESHOLD)))
+        value = float(raw.strip())
     except (TypeError, ValueError):
-        return _DEFAULT_CORR_THRESHOLD
+        raise ConfigError(f"Invalid numeric value for {key}; expected a finite float") from None
+    if not math.isfinite(value):
+        raise ConfigError(f"Non-finite value for {key} is invalid")
+    return value
 
 
 # ─── M1: transaction-cost haircut ─────────────────────────────────────────────
@@ -91,12 +112,18 @@ _DEFAULT_REBALANCE_DAYS = 21.0    # amortization horizon (≈ 1 trading month)
 
 
 def _cost_drag_daily() -> float:
-    """Per-day return drag from transaction costs. Env KELLY_COST_BPS / KELLY_REBALANCE_DAYS."""
-    try:
-        bps = float(os.getenv("KELLY_COST_BPS", str(_DEFAULT_COST_BPS)))
-        days = float(os.getenv("KELLY_REBALANCE_DAYS", str(_DEFAULT_REBALANCE_DAYS)))
-    except (TypeError, ValueError):
-        bps, days = _DEFAULT_COST_BPS, _DEFAULT_REBALANCE_DAYS
+    """Per-day return drag from transaction costs. Env KELLY_COST_BPS / KELLY_REBALANCE_DAYS.
+
+    Non-finite values fail closed: ``float("nan")`` succeeds, ``nan <= 0`` is
+    False, and ``bps / nan`` poisons ``mu`` so half-Kelly becomes NaN and
+    ``final_pct == 0`` (AVOID) never fires. Negative bps would *boost* μ.
+    Empty/missing keeps the documented defaults. Non-positive days still
+    disable the drag (explicit off).
+    """
+    bps = _finite_env_float("KELLY_COST_BPS", _DEFAULT_COST_BPS)
+    days = _finite_env_float("KELLY_REBALANCE_DAYS", _DEFAULT_REBALANCE_DAYS)
+    if bps < 0:
+        raise ConfigError("KELLY_COST_BPS cannot be negative")
     if days <= 0:
         return 0.0
     return (bps / 10_000.0) / days
