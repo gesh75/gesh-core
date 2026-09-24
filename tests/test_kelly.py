@@ -422,6 +422,60 @@ def test_haircut_positional_fallback_for_plain_arrays():
     assert hc["A"] == pytest.approx(1 / np.sqrt(2), abs=1e-6)
 
 
+def test_nan_corr_threshold_skips_every_peer():
+    """IEEE-754: |corr| >= nan is False, so a NaN threshold never haircuts."""
+    local = np.random.default_rng(13)
+    r = local.normal(0.001, 0.02, 30)
+    nan_hc = kelly._correlation_haircuts(
+        ["A", "B"], {"A": r, "B": r.copy()}, threshold=float("nan")
+    )
+    assert nan_hc == {"A": 1.0, "B": 1.0}
+    real_hc = kelly._correlation_haircuts(
+        ["A", "B"], {"A": r, "B": r.copy()}, threshold=0.7
+    )
+    assert real_hc["A"] == pytest.approx(1 / np.sqrt(2), abs=1e-6)
+
+
+@pytest.mark.parametrize("value", ["nan", "NaN", "inf", "-inf", "Infinity", "abc", "-0.1", "1.1"])
+def test_invalid_corr_threshold_env_fails_closed(value, monkeypatch):
+    monkeypatch.setenv("KELLY_CORR_THRESHOLD", value)
+    with pytest.raises(ConfigError):
+        kelly._corr_threshold()
+
+
+def test_empty_corr_threshold_env_keeps_default(monkeypatch):
+    monkeypatch.setenv("KELLY_CORR_THRESHOLD", "")
+    assert kelly._corr_threshold() == 0.70
+
+
+@pytest.mark.parametrize("key,value", [
+    ("KELLY_COST_BPS", "nan"),
+    ("KELLY_COST_BPS", "inf"),
+    ("KELLY_COST_BPS", "-10"),
+    ("KELLY_COST_BPS", "abc"),
+    ("KELLY_REBALANCE_DAYS", "nan"),
+    ("KELLY_REBALANCE_DAYS", "inf"),
+    ("KELLY_REBALANCE_DAYS", "abc"),
+])
+def test_invalid_cost_drag_env_fails_closed(key, value, monkeypatch):
+    monkeypatch.setenv(key, value)
+    with pytest.raises(ConfigError):
+        kelly._cost_drag_daily()
+
+
+def test_empty_cost_drag_env_keeps_default(monkeypatch):
+    monkeypatch.setenv("KELLY_COST_BPS", "")
+    monkeypatch.setenv("KELLY_REBALANCE_DAYS", "")
+    assert kelly._cost_drag_daily() == pytest.approx((10.0 / 10_000.0) / 21.0)
+
+
+def test_nan_cost_drag_would_poison_half_kelly(monkeypatch):
+    """Non-finite cost drag used to leak NaN into optimal_pct (AVOID never fires)."""
+    monkeypatch.setenv("KELLY_REBALANCE_DAYS", "nan")
+    with pytest.raises(ConfigError):
+        kelly_size_holding("X", 1000, 100_000, 10, 12, returns=POSITIVE_DRIFT)
+
+
 def test_run_kelly_analysis_date_aligned_end_to_end(monkeypatch):
     # Two clones of the same upward-drifting series, one with a mid-series gap:
     # sizing must work off the Series (coerced internally) AND the haircut must

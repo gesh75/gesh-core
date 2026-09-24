@@ -7,6 +7,12 @@ literals in `pyproject.toml`, `src/gesh_core/__init__.py`, and
 ## Unreleased
 
 ### Fixed
+- Kelly leftover env knobs (`KELLY_CORR_THRESHOLD`, `KELLY_COST_BPS`,
+  `KELLY_REBALANCE_DAYS`) reject NaN/infinity/malformed values with
+  `ConfigError`. A NaN correlation threshold made `|corr| >= threshold`
+  False for every pair, so the diversification haircut never applied.
+  Non-finite cost drag poisoned half-Kelly to NaN so AVOID never fired.
+  Empty env still means "use the conservative default".
 - `resolve_db_path` is path-only: no mkdir, connect, or CREATE/DROP at import
   or collection. Writability is an explicit `ensure_db_writable` bootstrap
   called from first `connect` / `_conn`. Importing `gesh_core.db` or
