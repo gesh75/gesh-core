@@ -7,6 +7,14 @@ literals in `pyproject.toml`, `src/gesh_core/__init__.py`, and
 ## Unreleased
 
 ### Fixed
+- `kelly_size_holding` applies the AI valuation penalty AFTER the half-Kelly
+  clamp to `MAX_POSITION_PCT`. Continuous Kelly is unbounded, so on a steady
+  positive drift the pre-clamp multiplier was a no-op: an `AVOID` or `SELL`
+  verdict still returned `action="ADD"` at the 25% ceiling. New hard
+  invariant: `AVOID` sizes to `0.0`; `SELL` never targets more than the
+  current weight, so neither verdict can ever recommend buying. `raw_kelly`
+  now reports the blend before the penalty (the penalty is still exposed as
+  `ai_penalty`); `optimal_pct` / `half_kelly` / `recommended_usd` carry it.
 - `resolve_db_path` is path-only: no mkdir, connect, or CREATE/DROP at import
   or collection. Writability is an explicit `ensure_db_writable` bootstrap
   called from first `connect` / `_conn`. Importing `gesh_core.db` or

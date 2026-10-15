@@ -289,26 +289,36 @@ def kelly_size_holding(
 
     # Master Signal Valuation Penalty (from AI deep analysis)
     ai_penalty = 1.0
+    verdict = ""
     if ai_eval:
         verdict = str(ai_eval.get("verdict", "")).upper()
         # "pct_diff" is negative if overvalued
         pct_diff = float(ai_eval.get("pct_diff", 0) or 0)
-        
+
         if verdict == "AVOID" or verdict == "SELL":
             ai_penalty = 0.5  # Heavy penalty
         elif pct_diff < -15.0:
             ai_penalty = 0.6  # Severe overvaluation penalty
         elif pct_diff < -5.0 or verdict == "REDUCE":
             ai_penalty = 0.8  # Slight overvaluation penalty
-            
-        raw_blend = raw_blend * ai_penalty
 
-    # Apply half-Kelly and hard cap
+    # Apply half-Kelly and hard cap, THEN the valuation penalty. Continuous
+    # Kelly is unbounded (a steady positive drift blends to f* in the tens), so
+    # a penalty applied before the clamp was a no-op on exactly the names it
+    # was meant to shrink: 0.5 × 23 still clamped to the 25% ceiling.
     half_kelly = raw_blend * HALF_KELLY_FACTOR
-    final_pct  = max(0.0, min(half_kelly, _max_position_pct()))
+    final_pct  = max(0.0, min(half_kelly, _max_position_pct())) * ai_penalty
 
     # Current vs optimal
     current_pct = current_equity / total_portfolio if total_portfolio > 0 else 0
+
+    # Hard invariant: a name the AI rates AVOID or SELL is never an ADD.
+    # AVOID → target zero. SELL → never more than is already held, so the
+    # verdict can read HOLD or TRIM but cannot ask to buy.
+    if verdict == "AVOID":
+        final_pct = 0.0
+    elif verdict == "SELL":
+        final_pct = min(final_pct, current_pct)
     recommended_usd = final_pct * total_portfolio
     delta_usd = recommended_usd - current_equity
     delta_pct = (final_pct - current_pct) * 100

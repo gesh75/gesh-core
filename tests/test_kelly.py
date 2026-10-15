@@ -175,12 +175,79 @@ def test_negative_drift_avoids():
 
 
 def test_ai_penalty_reduces_size():
+    """The penalty must bite AFTER the position cap. POSITIVE_DRIFT blends to a
+    raw Kelly far above the cap, so a pre-clamp multiplier was a no-op: AVOID
+    still sized ADD at the 25% ceiling."""
     base = kelly_size_holding("X", 1_000, 100_000, 10, 12, returns=POSITIVE_DRIFT)
     penalised = kelly_size_holding(
+        "X", 1_000, 100_000, 10, 12, returns=POSITIVE_DRIFT, ai_eval={"verdict": "REDUCE"}
+    )
+    assert base["optimal_pct"] == pytest.approx(MAX_POSITION_PCT * 100)
+    assert penalised["optimal_pct"] < base["optimal_pct"]
+    assert penalised["optimal_pct"] == pytest.approx(base["optimal_pct"] * 0.8)
+    assert penalised["ai_penalty"] == 0.8
+
+
+def test_overvaluation_penalty_applies_after_cap():
+    base = kelly_size_holding("X", 1_000, 100_000, 10, 12, returns=POSITIVE_DRIFT)
+    severe = kelly_size_holding(
+        "X", 1_000, 100_000, 10, 12, returns=POSITIVE_DRIFT, ai_eval={"pct_diff": -20.0}
+    )
+    assert severe["ai_penalty"] == 0.6
+    assert severe["optimal_pct"] == pytest.approx(base["optimal_pct"] * 0.6)
+
+
+@pytest.mark.parametrize("verdict", ["AVOID", "SELL", "avoid", "sell"])
+def test_avoid_or_sell_verdict_never_recommends_add(verdict):
+    """Hard invariant: a name the AI rates AVOID/SELL is never an ADD, on any drift."""
+    for held in (0.0, 1_000.0, 30_000.0):
+        res = kelly_size_holding(
+            "X", held, 100_000, 10, 12, returns=POSITIVE_DRIFT, ai_eval={"verdict": verdict}
+        )
+        assert res["action"] != "ADD", (verdict, held, res["action"], res["optimal_pct"])
+        assert res["ai_penalty"] == 0.5
+        assert res["optimal_pct"] <= res["current_pct"] + 1e-9
+
+
+def test_avoid_verdict_sizes_to_zero():
+    res = kelly_size_holding(
         "X", 1_000, 100_000, 10, 12, returns=POSITIVE_DRIFT, ai_eval={"verdict": "AVOID"}
     )
-    assert penalised["optimal_pct"] <= base["optimal_pct"]
-    assert penalised["ai_penalty"] == 0.5
+    assert res["optimal_pct"] == 0.0
+    assert res["recommended_usd"] == 0.0
+    assert res["action"] == "AVOID"
+    assert res["delta_usd"] == pytest.approx(-1_000.0)
+
+
+def test_sell_verdict_caps_at_current_weight():
+    """SELL never asks for more than is held: a 1% position sized at the 25%
+    ceiling pre-fix now targets at most 1% → HOLD/TRIM, not ADD."""
+    small = kelly_size_holding(
+        "X", 1_000, 100_000, 10, 12, returns=POSITIVE_DRIFT, ai_eval={"verdict": "SELL"}
+    )
+    assert small["optimal_pct"] <= 1.0
+    assert small["action"] in {"HOLD", "TRIM", "AVOID"}
+    # A SELL with nothing held has nothing to keep → AVOID.
+    flat = kelly_size_holding(
+        "X", 0.0, 100_000, 10, 12, returns=POSITIVE_DRIFT, ai_eval={"verdict": "SELL"}
+    )
+    assert flat["optimal_pct"] == 0.0
+    assert flat["action"] == "AVOID"
+    # An oversized SELL position still reads TRIM (shrink toward the penalised size).
+    big = kelly_size_holding(
+        "X", 40_000, 100_000, 10, 12, returns=POSITIVE_DRIFT, ai_eval={"verdict": "SELL"}
+    )
+    assert big["action"] == "TRIM"
+    assert big["optimal_pct"] < 40.0
+
+
+def test_bullish_verdict_unchanged_by_invariant():
+    base = kelly_size_holding("X", 1_000, 100_000, 10, 12, returns=POSITIVE_DRIFT)
+    bull = kelly_size_holding(
+        "X", 1_000, 100_000, 10, 12, returns=POSITIVE_DRIFT, ai_eval={"verdict": "BUY"}
+    )
+    assert bull["optimal_pct"] == base["optimal_pct"]
+    assert bull["action"] == base["action"] == "ADD"
 
 
 def test_hard_cap_enforced():
