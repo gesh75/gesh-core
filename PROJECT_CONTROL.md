@@ -16,8 +16,8 @@
 | GitHub Releases | **none** |
 | Open PRs / issues | none at verification |
 | Runtime | none — this is a library; it has no service, scheduler or database of its own |
-| Last completed milestone | **PR #34** `fix(allocation): reject unhashable trade actions` (merged as `97a519b7`) |
-| Single next action | **Bump both consumer pins to this 0.8.2 SHA** (see §3). Then cut an annotated `v0.8.2` tag + GitHub Release so tag-followers stop installing 0.6.1. |
+| Last completed milestone | **PR #96** `fix(kelly): AVOID/SELL verdict can never size to ADD` (merged as `4f489626`, 2026-10-15); both consumers re-pinned to it the same day |
+| Single next action | Cut an annotated `v0.8.2` tag + GitHub Release so tag-followers stop installing 0.6.1 (consumer pins are current as of 2026-10-15, §3). |
 
 > ⚠ **This document was stale from 2026-07-31 through 2026-08-22.** It still
 > claimed version `0.6.2`, SHA `a9342c08`, and "trading still pins symbolic tag
@@ -73,20 +73,18 @@ Trust boundary: consumers import `gesh_core.*` directly, and both product repos
 alias their local modules onto it via `sys.modules[__name__] = _impl`,
 so **every module-level name here is reachable as `trading.config.X` downstream**.
 
-## 3. Consumers and their pins — GitHub-verified 2026-08-22
+## 3. Consumers and their pins — GitHub-verified 2026-10-15
 
 | Consumer | Pin | Form | Status |
 |---|---|---|---|
-| `gesh75/Gesh-Project` | `493123938a173d890c63655ea20410501bd8b9f0` (`v0.8.1`) | 40-char commit ✅ | 🟡 **1 commit behind `main`** — missing PR #34 (unhashable allocation actions). `requirements.txt` |
-| `gesh75/gesh-project-trading` | `33af7482c01b4950cab82ba5167e47146f048575` (`v0.8.0`) | 40-char commit ✅ | 🟡 **2 commits behind `main`** — missing v0.8.1 (vendor LICENSE in the wheel) **and** PR #34 |
+| `gesh75/Gesh-Project` | `4f48962632223da08c87ae6bc5e6bfca6f6b9121` (PR #96 merge) | 40-char commit ✅ | 🟢 **at `main`** — Gesh-Project PR #347 (`requirements.txt`, `requirements.lock`, SHA literals in `tests/test_dependency_sanity.py` / `tests/test_strict_config_integration.py`) |
+| `gesh75/gesh-project-trading` | `4f48962632223da08c87ae6bc5e6bfca6f6b9121` (PR #96 merge) | 40-char commit ✅ | 🟢 **at `main`** — trading PR #195 (`requirements.txt`; live venv re-installed pin-only 2026-10-15) |
 
 The 2026-07-31 claim that trading still pinned symbolic tag `v0.4.0` is **obsolete**.
 Both consumers pin SHAs. The remaining risk is **lag**, not tag-following.
 
-After this 0.8.2 lands, bump **both** pins to the merge SHA of this revision.
-Trading in particular still installs a wheel that drops `NOTICE.md` /
-`LICENSE-cookbooks` (the product repo's
-`test_vendored_code_keeps_its_licence_and_notice` would fail against that pin).
+Both pins moved `a6d287bb` → `4f489626` on 2026-10-15 (Kelly verdict invariant, PR #96).
+The next lag will appear the next time `main` moves; re-verify this table then.
 
 ## 4. Milestones
 
@@ -97,8 +95,9 @@ Trading in particular still installs a wheel that drops `NOTICE.md` /
 | ✅ DONE | Decision ledger Phase 4A | schema + hash contracts + tenant isolation |
 | ✅ DONE | `gesh_core.dcf` v0.7.0 / methodology v0.8.0 / wheel LICENSE v0.8.1 | PRs #31–#33 |
 | ✅ DONE | Fail-closed hardening batch (PRs #12–#30, #34) | allocation, kelly, ledger, tax, ECG, ATR, CI token |
-| 🟡 ACTIVE | 0.8.2 DCF tests + control-doc refresh + CI import discovery | this revision |
-| ⬜ NEXT | Consumer pin bump (product + engine) to 0.8.2 SHA | dedicated PRs in those repos |
+| ✅ DONE | 0.8.2 DCF tests + control-doc refresh + CI import discovery | merged |
+| ✅ DONE | Kelly: AI penalty after cap; AVOID → 0, SELL → ≤ held weight (PR #96) | merged as `4f489626`; 644 tests |
+| ✅ DONE | Consumer pin bump (product + engine) to `4f489626` | Gesh-Project #347, trading #195 (2026-10-15) |
 | ⬜ NEXT | Annotated tag `v0.8.2` + GitHub Release | so tag-followers stop at 0.6.1 |
 | ⬜ BACKLOG | Root LICENSE file (legal decision — not invented here) | owner call |
 | ⬜ BACKLOG | Split files over the 400-line copilot guideline (`ledger/integration` 618, `state` 550, `kelly` 544) | non-breaking extract |
