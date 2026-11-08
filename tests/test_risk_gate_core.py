@@ -6,6 +6,8 @@ LIVE against the real account cash.
 """
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from gesh_core.trading import risk_gate_core as rgc
@@ -71,3 +73,55 @@ def test_sell_returns_cash_unchanged():
     cfg = RiskConfig(paper_mode=False)
     intent = manual("NVDA", "SELL", target_position_pct=0.0)
     assert _post_trade_cash_estimate(_pf(cash=7_777.0, equity=50_000.0), intent, cfg) == pytest.approx(7_777.0)
+
+
+def test_live_null_cash_is_zero_not_typeerror():
+    """Key-present null used to be fine (`or 0`); keep that, and stay finite."""
+    cfg = RiskConfig(paper_mode=False)
+    intent = manual("NVDA", "BUY", target_position_pct=0.02)
+    post = _post_trade_cash_estimate(_pf(cash=None, equity=50_000.0), intent, cfg)
+    assert post == pytest.approx(-1_000.0)
+
+
+@pytest.mark.parametrize("bad_cash", [float("nan"), float("inf"), "N/A", "", {"usd": 10}])
+def test_live_unusable_cash_does_not_crash_or_nan_the_floor(bad_cash):
+    """CASH_FLOOR is shared by the whole book. Junk cash must not TypeError a
+    sibling SELL, and NaN must not leak out — ``nan < min_cash`` is False, so
+    the host would fail open and let a LIVE BUY through."""
+    cfg = RiskConfig(paper_mode=False)
+    buy = manual("NVDA", "BUY", target_position_pct=0.02)
+    sell = manual("AMD", "SELL", target_position_pct=0.0)
+    buy_post = _post_trade_cash_estimate(_pf(cash=bad_cash, equity=50_000.0), buy, cfg)
+    sell_post = _post_trade_cash_estimate(_pf(cash=bad_cash, equity=50_000.0), sell, cfg)
+    assert math.isfinite(buy_post)
+    assert math.isfinite(sell_post)
+    # Unknown LIVE cash on a BUY → fail closed (0 < default $500 buffer).
+    assert buy_post == 0.0
+    assert sell_post == 0.0
+
+
+@pytest.mark.parametrize("bad_equity", [float("nan"), float("inf"), "n/a", None])
+def test_live_unusable_equity_fails_closed_on_buy(bad_equity):
+    """Treating NaN equity as 0 makes target_pct × equity = 0, so the BUY
+    looks free and CASH_FLOOR passes. Refuse the estimate instead."""
+    cfg = RiskConfig(paper_mode=False)
+    intent = manual("NVDA", "BUY", target_position_pct=0.02)
+    post = _post_trade_cash_estimate(_pf(cash=10_000.0, equity=bad_equity), intent, cfg)
+    assert math.isfinite(post)
+    assert post == 0.0
+
+
+def test_missing_equity_summary_does_not_crash_sell():
+    """A failed snapshot that sets equity_summary=None used to AttributeError
+    before any per-action branch — aborting stop-sweep exits."""
+    cfg = RiskConfig(paper_mode=False)
+    intent = manual("NVDA", "SELL", target_position_pct=0.0)
+    post = _post_trade_cash_estimate({"equity_summary": None}, intent, cfg)
+    assert post == 0.0
+
+
+def test_nan_target_pct_buy_fails_closed():
+    cfg = RiskConfig(paper_mode=False)
+    intent = manual("NVDA", "BUY", target_position_pct=float("nan"))
+    post = _post_trade_cash_estimate(_pf(cash=10_000.0, equity=50_000.0), intent, cfg)
+    assert post == 0.0
