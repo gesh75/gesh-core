@@ -87,6 +87,12 @@ def test_growth_path_short_horizon_does_not_divide_by_zero():
     assert _growth_path((100.0, 110.0), terminal=0.03, years=0) == []
 
 
+def test_growth_path_non_positive_last_revenue_does_not_raise():
+    """3-year DCF default: last<=0 makes `(last/first)**(1/2)` complex."""
+    assert _growth_path((100.0, 110.0, -20.0), terminal=0.03, years=5) == [0.03] * 5
+    assert _growth_path((100.0, 110.0, 0.0), terminal=0.03, years=5) == [0.03] * 5
+
+
 def test_dcf_inputs_available_requires_aligned_min_periods():
     assert _ok_inputs().available is True
     short = _ok_inputs(years=(2024, 2025), revenue=(1.0, 2.0), ebitda=(1.0, 2.0),
@@ -227,6 +233,20 @@ def test_compute_fair_value_fails_closed_on_all_zero_revenue(monkeypatch):
 def test_compute_fair_value_fails_closed_on_mixed_zero_revenue(monkeypatch):
     """A single zero year is enough: the valuation core refuses, it does not skip."""
     _patch_fetch(monkeypatch, _ok_inputs(revenue=(0.0, 22_000.0, 25_000.0)))
+    result = compute_fair_value("ZZZ")
+    assert "error" in result
+    assert result["fetched"] is True
+    assert "fair_value_per_share" not in result
+    assert "revenue" in result["error"]
+
+
+def test_compute_fair_value_fails_closed_on_negative_last_revenue(monkeypatch):
+    """Positive first year + negative last year used to TypeError in `_growth_path`.
+
+    3 aligned years is the DCFInputs contract (MIN_PERIODS). A restatement or
+    sign-flipped Yahoo row on the latest year must be a named refusal, not a crash.
+    """
+    _patch_fetch(monkeypatch, _ok_inputs(revenue=(20_000.0, 22_000.0, -1_000.0)))
     result = compute_fair_value("ZZZ")
     assert "error" in result
     assert result["fetched"] is True
