@@ -108,6 +108,47 @@ def test_is_relevant_escapes_regex_metachars():
     assert sc._is_relevant("NVDA to the moon", "NVDA")
 
 
+def test_is_relevant_rejects_english_word_collisions():
+    """Bare English must not score as a ticker — that poisons Node 6's vote.
+
+    `\bON\b` / `\bCOST\b` / `\bA\b` with IGNORECASE match ordinary prose
+    ("thoughts on NVDA", "the cost of", the article "a"), so ON / COST / A
+    inherited the whole-subreddit mood instead of ticker-specific posts.
+    """
+    prose = "thoughts on the cost of a new position today"
+    assert not sc._is_relevant(prose, "ON")
+    assert not sc._is_relevant(prose, "COST")
+    assert not sc._is_relevant(prose, "A")
+    assert not sc._is_relevant(prose, "IT")
+    assert not sc._is_relevant(prose, "NOW")
+    assert not sc._is_relevant("I will hold and not sell", "HOLD")
+    assert not sc._is_relevant("I will hold and not sell", "SELL")
+    # BUY was omitted from the English-word list, so \bbuy\b still matched.
+    assert not sc._is_relevant("I will buy the dip today", "BUY")
+    # WSB-style ALL CAPS still uses action / function words as English.
+    shout = "I WILL HOLD AND NOT SELL — BUY THE DIP"
+    for ticker in ("HOLD", "SELL", "BUY", "ADD", "CALL", "LONG", "BEAR", "BULL"):
+        assert not sc._is_relevant(shout, ticker)
+    function_shout = "ARE WE ALL IN NOW OR CAN YOU HOLD FOR THE LONG RUN"
+    for ticker in ("ALL", "ARE", "CAN", "FOR", "NOW", "YOU", "RUN", "HOLD", "LONG"):
+        assert not sc._is_relevant(function_shout, ticker)
+    # Title-case English is not an all-caps ticker token.
+    assert not sc._is_relevant("the Cost of a new position", "COST")
+    assert sc._CASHTAG_ONLY_TICKERS <= sc._ENGLISH_WORD_TICKERS
+
+    # Unambiguous cashtag / all-caps noun ticker still counts.
+    assert sc._is_relevant("$ON guidance cut after the print", "ON")
+    assert sc._is_relevant("$on guidance cut after the print", "ON")
+    assert sc._is_relevant("$COST beat this morning", "COST")
+    assert sc._is_relevant("COST looking cheap after the print", "COST")
+    assert sc._is_relevant("$A prints tonight", "A")
+    assert sc._is_relevant("$HOLD looking extended after the run", "HOLD")
+    assert sc._is_relevant("$BUY etf recap this morning", "BUY")
+    assert sc._is_relevant("$ALL after the print", "ALL")
+    # Ordinary tickers keep case-insensitive bare matching.
+    assert sc._is_relevant("nvda to the moon", "NVDA")
+
+
 def test_summary_never_contains_raw_post_text(monkeypatch, tmp_path):
     """Contract: the LLM-injectable payload carries ONLY computed stats.
 
