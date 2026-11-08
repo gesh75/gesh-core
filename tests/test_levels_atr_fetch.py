@@ -80,3 +80,55 @@ def test_atr_cache_size_is_bounded():
 
     assert len(levels._ATR_CACHE) == levels._ATR_CACHE_MAX_SIZE
     assert ("SYM0", "2026-08-04") not in levels._ATR_CACHE
+
+
+def test_fetch_atr_none_when_atr_computes_none(monkeypatch):
+    # Flat bars → indicators.atr returns None → must cache the miss, not retry.
+    levels._ATR_CACHE.clear()
+    calls = {"n": 0}
+    flat = np.full(40, 10.0)
+
+    def fake(symbol, period_days=252):
+        calls["n"] += 1
+        return {"high": flat, "low": flat, "close": flat, "volume": np.full(40, 1_000.0)}
+
+    monkeypatch.setattr(market_fetch, "fetch_ohlcv", fake)
+    assert levels._fetch_atr("FLAT") is None
+    assert levels._fetch_atr("FLAT") is None
+    assert calls["n"] == 1
+
+
+def test_fetch_atr_none_on_provider_exception(monkeypatch):
+    levels._ATR_CACHE.clear()
+    calls = {"n": 0}
+
+    def boom(symbol, period_days=252):
+        calls["n"] += 1
+        raise RuntimeError("401 crumb")
+
+    monkeypatch.setattr(market_fetch, "fetch_ohlcv", boom)
+    assert levels._fetch_atr("XYZ") is None
+    assert levels._fetch_atr("XYZ") is None
+    assert calls["n"] == 1
+
+
+def test_derive_levels_unusable_entry_preserves_explicit():
+    assert levels._derive_levels("BUY", 0.0, 90.0, 110.0) == (90.0, 110.0)
+    assert levels._derive_levels("BUY", -5.0, None, None) == (None, None)
+
+
+def test_derive_levels_lazy_fetch_fills_gaps(monkeypatch):
+    levels._ATR_CACHE.clear()
+    monkeypatch.setattr(market_fetch, "fetch_ohlcv", lambda s, **k: _arrays())
+    stop, target = levels._derive_levels("BUY", 100.0, None, None, symbol="XYZ")
+    assert stop is not None and target is not None
+    assert stop < 100.0 < target
+    # Must not have fallen through to the flat 5/12 ladder.
+    assert (stop, target) != (95.0, 112.0)
+
+
+def test_derive_levels_fetch_miss_falls_back_to_flat(monkeypatch):
+    levels._ATR_CACHE.clear()
+    monkeypatch.setattr(levels, "_fetch_atr", lambda s: None)
+    stop, target = levels._derive_levels("BUY", 100.0, None, None, symbol="XYZ")
+    assert (stop, target) == (95.0, 112.0)
