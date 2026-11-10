@@ -47,7 +47,7 @@ def entry_floor_blocks(action: str, raw_score: float | None, min_entry_score: fl
     if raw_score is None:
         return True
     try:
-        score = float(raw_score)  # type: ignore[arg-type]
+        score = float(raw_score)
         floor = float(min_entry_score)
     except (TypeError, ValueError):
         return True
