@@ -363,6 +363,26 @@ def log_order(
 # ─── counters / history ───────────────────────────────────────────────────────
 
 
+def _aware_instant(now: datetime | None, *, owner: str) -> datetime:
+    instant = now or datetime.now(UTC)
+    if instant.tzinfo is None:
+        raise ValueError(f"{owner} now must be timezone-aware")
+    return instant
+
+
+def _et_day_window(instant: datetime) -> tuple[str, str, str]:
+    """ISO ``[start, end)`` and ET calendar date for the America/New_York day.
+
+    Shared by ``count_orders_today`` and ``paper_realized_pnl_usd_today`` so the
+    two daily gates cannot drift (UTC midnight vs ET midnight).
+    """
+    et = ZoneInfo("America/New_York")
+    et_day = instant.astimezone(et).date()
+    start_utc = datetime.combine(et_day, time.min, tzinfo=et).astimezone(UTC)
+    end_utc = datetime.combine(et_day + timedelta(days=1), time.min, tzinfo=et).astimezone(UTC)
+    return start_utc.isoformat(), end_utc.isoformat(), et_day.isoformat()
+
+
 def count_orders_today(
     mode: str | None = None,
     approved_only: bool = True,
@@ -380,16 +400,10 @@ def count_orders_today(
             deliberately returns every audit row inside the same ET bounds.
         now: Optional timezone-aware instant for deterministic callers/tests.
     """
-    instant = now or datetime.now(UTC)
-    if instant.tzinfo is None:
-        raise ValueError("count_orders_today now must be timezone-aware")
-    et = ZoneInfo("America/New_York")
-    et_day = instant.astimezone(et).date()
-    start_utc = datetime.combine(et_day, time.min, tzinfo=et).astimezone(UTC)
-    end_utc = datetime.combine(et_day + timedelta(days=1), time.min, tzinfo=et).astimezone(UTC)
+    start_iso, end_iso, _et_date = _et_day_window(_aware_instant(now, owner="count_orders_today"))
 
     sql = "SELECT COUNT(*) AS n FROM orders WHERE placed_at >= ? AND placed_at < ?"
-    params: list[Any] = [start_utc.isoformat(), end_utc.isoformat()]
+    params: list[Any] = [start_iso, end_iso]
     if approved_only:
         sql += (
             " AND status IN ('SIMULATED', 'SUBMITTED', 'FILLED', 'ERROR')"
@@ -403,11 +417,16 @@ def count_orders_today(
         return int(con.execute(sql, params).fetchone()["n"])
 
 
-def paper_realized_pnl_usd_today() -> float:
-    """Sum of realized P&L from the paper book closed since 00:00 UTC today.
+def paper_realized_pnl_usd_today(*, now: datetime | None = None) -> float:
+    """Sum of realized P&L from the paper book closed on the current ET day.
 
-    Drives the PAPER-mode daily-loss circuit breaker (rules #36/#40) — the paper
-    book's OWN realized loss today, NOT the real Robinhood account's intraday swing.
+    Uses the same America/New_York calendar-day bounds as ``count_orders_today``.
+    A UTC-midnight window dropped same-session losses after 20:00 ET (00:00 UTC)
+    while the daily order cap still counted that ET day — the PAPER daily-loss
+    breaker (rules #36/#40) then failed open.
+
+    Drives the PAPER-mode daily-loss circuit breaker — the paper book's OWN
+    realized loss today, NOT the real Robinhood account's intraday swing.
     Checks BOTH possible paper books in this DB and sums them:
       - paper_outcomes (tracker convention — the engine's autonomy-gate book)
       - trade_log's paper_trades (the product daily-analysis paper sessions)
@@ -415,15 +434,22 @@ def paper_realized_pnl_usd_today() -> float:
     expected (engine has no paper_trades; product may have no paper_outcomes)
     and is skipped. If NEITHER table is readable, raise LedgerUnavailable —
     that is not a fabricated $0 flat day (Astra R3). Other SQLite errors raise.
+
+    Args:
+        now: Optional timezone-aware instant for deterministic callers/tests.
     """
-    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    start_iso, end_iso, et_date = _et_day_window(
+        _aware_instant(now, owner="paper_realized_pnl_usd_today")
+    )
+
     total = 0.0
     seen = 0
     with _conn() as con:
         try:
             row = con.execute(
-                "SELECT COALESCE(SUM(pnl_usd), 0.0) AS s FROM paper_outcomes WHERE exit_at >= ?",
-                [today + "T00:00:00+00:00"],
+                "SELECT COALESCE(SUM(pnl_usd), 0.0) AS s FROM paper_outcomes "
+                "WHERE exit_at >= ? AND exit_at < ?",
+                [start_iso, end_iso],
             ).fetchone()
             total += float(row["s"] or 0.0)
             seen += 1
@@ -431,10 +457,17 @@ def paper_realized_pnl_usd_today() -> float:
             if "no such table" not in str(e).lower():
                 raise
         try:
+            # Naive product rows are "YYYY-MM-DD HH:MM" (ET calendar date).
+            # ISO instants (…T…±offset) use the same [start, end) window as
+            # paper_outcomes. Mixing the two predicates double-counts a 21:00
+            # ET close on the next UTC morning (date prefix 01:00Z = next day).
             row = con.execute(
                 "SELECT COALESCE(SUM(realized_pnl), 0.0) AS s FROM paper_trades "
-                "WHERE exit_time IS NOT NULL AND substr(exit_time, 1, 10) = ?",
-                [today],
+                "WHERE exit_time IS NOT NULL AND ("
+                "(instr(exit_time, 'T') = 0 AND substr(exit_time, 1, 10) = ?) "
+                "OR (instr(exit_time, 'T') > 0 AND exit_time >= ? AND exit_time < ?)"
+                ")",
+                [et_date, start_iso, end_iso],
             ).fetchone()
             total += float(row["s"] or 0.0)
             seen += 1
