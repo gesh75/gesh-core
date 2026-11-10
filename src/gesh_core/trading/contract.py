@@ -21,6 +21,21 @@ Action = Literal["BUY", "SELL", "HOLD"]
 SCHEMA_VERSION = 1
 
 
+def _finite_or_zero(value: Any) -> float:
+    """Coerce a consensus numeric field to a finite float; junk/null/NaN → 0.
+
+    ``float(None)`` raises TypeError, so a single INSUFFICIENT row with
+    ``raw_score: null`` would abort ``from_consensus`` for the whole book.
+    Missing keys and explicit zeros already meant "no conviction" — treat
+    unusable values the same so the entry floor / min_confidence fail closed.
+    """
+    try:
+        number = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return number if math.isfinite(number) else 0.0
+
+
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -105,14 +120,17 @@ def from_consensus(
       BUY         → 0.5 * cap
     """
     verdict = (consensus_row.get("verdict") or "").upper()
-    raw_score = float(consensus_row.get("raw_score", 0))
+    raw_score = _finite_or_zero(consensus_row.get("raw_score"))
     # consensus returns confidence as 0..100 percent of nodes that voted.
     # Deliberately DATA COVERAGE only — conviction (signal strength) is gated
     # separately by the callers' P2 entry floor on raw_score
     # (RiskConfig.min_entry_score), so the two levers stay independently
     # tunable. Do NOT blend raw_score in here: that double-gates entries and
     # silently re-calibrates every consumer's min_confidence.
-    confidence = float(consensus_row.get("confidence", 0)) / 100.0
+    # Null/NaN (common on INSUFFICIENT rows) must not TypeError the whole
+    # portfolio adapter — coerce to 0 so the entry floor / min_confidence
+    # fail closed instead of aborting every sibling symbol.
+    confidence = _finite_or_zero(consensus_row.get("confidence")) / 100.0
 
     if verdict == "STRONG BUY":
         action: Action = "BUY"

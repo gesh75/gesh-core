@@ -10,6 +10,8 @@ These pin the full TradeIntent contract + adapters so neither consumer regresses
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from gesh_core.trading import contract
@@ -208,6 +210,116 @@ def test_adapters_accept_explicit_provenance(adapter):
 
 
 # ─── confidence semantics (audit PR4 — resolved as division of labor) ────────
+
+
+@pytest.mark.parametrize(
+    "raw_score,confidence",
+    [
+        (None, 80),
+        (0.6, None),
+        (None, None),
+        (float("nan"), 80),
+        (0.6, float("nan")),
+        (float("inf"), 80),
+        ("", ""),
+        ("not-a-number", "also-bad"),
+    ],
+)
+def test_from_consensus_null_or_nonfinite_scores_fail_closed(raw_score, confidence):
+    """A single INSUFFICIENT/null-score row must not TypeError the adapter.
+
+    Callers map from_consensus across the book; one null raw_score used to
+    abort every sibling symbol, including SELLs. Unusable scores become 0
+    so the P2 entry floor and min_confidence reject the BUY instead.
+    """
+    intent = from_consensus(
+        {
+            "symbol": "NVDA",
+            "verdict": "INSUFFICIENT DATA",
+            "raw_score": raw_score,
+            "confidence": confidence,
+            "active_nodes": 0,
+            "total_nodes": 11,
+        }
+    )
+    assert intent.action == "HOLD"
+    assert intent.target_position_pct is None
+    assert math.isfinite(intent.confidence)
+    assert 0.0 <= intent.confidence <= 1.0
+
+
+def test_from_consensus_null_row_does_not_abort_sibling_sell():
+    """Callers map from_consensus across the book; one null must not raise."""
+    book = [
+        {
+            "symbol": "AMD",
+            "verdict": "INSUFFICIENT DATA",
+            "raw_score": None,
+            "confidence": None,
+            "active_nodes": 0,
+            "total_nodes": 11,
+        },
+        {
+            "symbol": "NVDA",
+            "verdict": "SELL",
+            "raw_score": -0.90,
+            "confidence": 80,
+            "active_nodes": 8,
+            "total_nodes": 11,
+        },
+    ]
+    intents = [from_consensus(row) for row in book]
+    assert [intent.action for intent in intents] == ["HOLD", "SELL"]
+    assert intents[1].target_position_pct == 0.0
+
+
+def test_from_consensus_null_raw_score_on_sell_still_closes():
+    """The production failure: one null-score row must not abort a SELL."""
+    intent = from_consensus(
+        {
+            "symbol": "NVDA",
+            "verdict": "SELL",
+            "raw_score": None,
+            "confidence": None,
+            "active_nodes": 0,
+            "total_nodes": 11,
+        }
+    )
+    assert intent.action == "SELL"
+    assert intent.target_position_pct == 0.0
+    assert intent.confidence == 0.0
+
+
+def test_from_consensus_preserves_negative_raw_score_in_rationale():
+    intent = from_consensus(
+        {
+            "symbol": "NVDA",
+            "verdict": "SELL",
+            "raw_score": -0.90,
+            "confidence": 80,
+            "active_nodes": 8,
+            "total_nodes": 11,
+        }
+    )
+    assert intent.action == "SELL"
+    assert "raw_score=-0.90" in (intent.rationale or "")
+
+
+def test_from_consensus_null_raw_score_on_buy_is_zero_conviction():
+    intent = from_consensus(
+        {
+            "symbol": "NVDA",
+            "verdict": "BUY",
+            "raw_score": None,
+            "confidence": 100,
+            "active_nodes": 11,
+            "total_nodes": 11,
+        }
+    )
+    assert intent.action == "BUY"
+    assert intent.confidence == pytest.approx(1.0)
+    # Rationale must still render — the old float(None) crashed before this.
+    assert "raw_score=+0.00" in (intent.rationale or "")
 
 
 def test_from_consensus_confidence_is_participation_not_conviction():
