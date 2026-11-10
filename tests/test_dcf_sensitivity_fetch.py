@@ -9,6 +9,7 @@ against a different fiscal series than the published base.
 
 from __future__ import annotations
 
+from gesh_core.dcf import fair_value, sensitivity
 from gesh_core.dcf.fair_value import PROJECTION_YEARS, compute_fair_value
 from gesh_core.dcf.inputs import DCFInputs
 from gesh_core.dcf.sensitivity import _base_assumptions, run_sensitivity
@@ -30,8 +31,6 @@ def _available_inputs(symbol: str = "AMD") -> DCFInputs:
 
 def test_run_sensitivity_unavailable_inputs_returns_error_not_crash(monkeypatch):
     """Empty/failed statement pull must return an error dict, not IndexError."""
-    from gesh_core.dcf import fair_value, sensitivity
-
     profiles = {"n": 0}
 
     def boom_profile(symbol):
@@ -59,8 +58,6 @@ def test_run_sensitivity_unavailable_inputs_returns_error_not_crash(monkeypatch)
 
 
 def test_run_sensitivity_fetches_statements_and_profile_once(monkeypatch):
-    from gesh_core.dcf import fair_value, sensitivity
-
     fetches = {"n": 0}
     profiles = {"n": 0}
     data = _available_inputs()
@@ -96,8 +93,6 @@ def test_run_sensitivity_ignores_a_second_snapshot_if_fetch_were_called_again(mo
 
     A second fetch that returns different fiscal years must not be consulted.
     """
-    from gesh_core.dcf import fair_value, sensitivity
-
     first = _available_inputs()
     second = DCFInputs(
         symbol="AMD",
@@ -150,8 +145,6 @@ def test_base_assumptions_defaults_margin_when_latest_revenue_is_zero():
 
 
 def test_compute_fair_value_reuses_injected_snapshot_without_fetching(monkeypatch):
-    from gesh_core.dcf import fair_value
-
     def boom(*_args, **_kwargs):
         raise AssertionError("injected snapshot must not re-fetch")
 
@@ -166,8 +159,6 @@ def test_compute_fair_value_reuses_injected_snapshot_without_fetching(monkeypatc
 
 
 def test_compute_fair_value_without_kwargs_still_self_fetches(monkeypatch):
-    from gesh_core.dcf import fair_value
-
     fetches = {"n": 0}
     profiles = {"n": 0}
 
