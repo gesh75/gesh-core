@@ -46,6 +46,10 @@ def test_atr_levels_buy_clamped():
 def test_atr_levels_bad_input_returns_none():
     assert levels._atr_levels("BUY", 0.0, 2.0) == (None, None)
     assert levels._atr_levels("BUY", 100.0, None) == (None, None)
+    assert levels._atr_levels("BUY", float("nan"), 2.0) == (None, None)
+    assert levels._atr_levels("BUY", 100.0, float("nan")) == (None, None)
+    assert levels._atr_levels("BUY", float("inf"), 2.0) == (None, None)
+    assert levels._atr_levels("BUY", 100.0, float("inf")) == (None, None)
 
 
 def test_indicators_atr_matches_true_range():
@@ -68,3 +72,22 @@ def test_atr_buy_levels_unchanged_by_floor():
     stop, target = levels._atr_levels("BUY", 100.0, 1.0)
     assert stop == 97.0                                    # 3*ATR clamped to [3%,15%]
     assert target == 105.0                                 # 5*ATR
+
+
+def test_derive_levels_rejects_nonfinite_entry():
+    """NaN/+inf quotes must not become stops — ``price <= nan`` never fires."""
+    for bad in (float("nan"), float("inf"), float("-inf"), 0.0, -10.0):
+        stop, target = levels._derive_levels(
+            "BUY", bad, None, None, atr_value=None, symbol=None
+        )
+        assert stop is None
+        assert target is None
+
+
+def test_derive_levels_replaces_nonfinite_explicit_levels():
+    """A NaN stop on a valid fill is treated as missing and filled from the ladder."""
+    stop, target = levels._derive_levels(
+        "BUY", 100.0, float("nan"), float("inf"), atr_value=None, symbol=None
+    )
+    assert stop == 95.0
+    assert target == 112.0
