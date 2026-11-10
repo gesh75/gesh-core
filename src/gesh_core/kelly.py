@@ -9,6 +9,7 @@ Inputs per holding: price history (90d), analyst upside, current allocation
 """
 
 import logging
+import math
 import os
 import sys
 
@@ -29,6 +30,35 @@ def _parse_position_cap(
 ) -> float:
     """Finite position cap in the inclusive range [0, 1]. Invalid input raises."""
     return parse_unit_interval(key, value, fallback)
+
+
+def _finite_float(value: object, default: float = 0.0) -> float:
+    """Coerce broker/JSON fields to a finite float.
+
+    ``dict.get(key, 0)`` still returns ``None`` when the key is present and
+    null — ``float(None)`` then crashes the whole Kelly book. Non-finite
+    values (Yahoo 0-prints, frozen rows) must not reach the sizing math.
+    """
+    if value is None:
+        value = default
+    try:
+        out = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+    return out if math.isfinite(out) else default
+
+
+def _finite_returns(returns: np.ndarray | pd.Series) -> np.ndarray:
+    """Drop NaN/±Inf daily returns. ``dropna`` does not remove infinities."""
+    arr = np.asarray(returns, dtype=float)
+    if arr.size == 0:
+        return arr
+    return arr[np.isfinite(arr)]
+
+
+def _has_finite_optimal(row: dict) -> bool:
+    value = row.get("optimal_pct")
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 # Per-position hard cap. Env-overridable (KELLY_MAX_POSITION_PCT) but the default
@@ -166,7 +196,19 @@ def _fetch_returns(symbol: str, days: int = 90) -> pd.Series | None:
         closes = raw["Close"]
         if hasattr(closes, "squeeze"):
             closes = closes.squeeze()
-        returns = closes.pct_change().dropna().astype(float)
+        closes = pd.to_numeric(closes, errors="coerce")
+        # Non-positive prints are data errors, not -100% sessions.
+        # db.log_equity_snapshot found 218 such rows (incl. frozen NVDA).
+        # Leaving the $0 bar in place makes pct_change() emit -1.0 that day
+        # and +inf on the rebound — dropna() keeps both inf and the crash
+        # day, which NaNs μ/σ² or flips a healthy name to AVOID.
+        closes = closes[np.isfinite(closes) & (closes > 0)]
+        if len(closes) < MIN_HISTORY_DAYS:
+            return None
+        returns = closes.pct_change().astype(float)
+        returns = returns[np.isfinite(returns)]
+        if returns.empty:
+            return None
         # Normalize the index for cross-source alignment: Yahoo is tz-aware
         # (America/New_York), the Robinhood fallback may be naive — without
         # stripping tz + time-of-day, an inner join across sources matches
@@ -260,7 +302,8 @@ def kelly_size_holding(
     if returns is not None:
         # Sizing math is date-agnostic — accept either the dated Series from
         # _fetch_returns or a plain injected ndarray, compute on ndarray.
-        returns = np.asarray(returns, dtype=float)
+        # Inf/NaN days (0-price prints) must not reach μ/σ².
+        returns = _finite_returns(returns)
     if returns is None or len(returns) < MIN_HISTORY_DAYS:
         return {
             "symbol": symbol,
@@ -292,9 +335,9 @@ def kelly_size_holding(
     verdict = ""
     if ai_eval:
         verdict = str(ai_eval.get("verdict", "")).upper()
-        # "pct_diff" is negative if overvalued
-        pct_diff = float(ai_eval.get("pct_diff", 0) or 0)
-
+        # "pct_diff" is negative if overvalued. LLM/JSON junk must not
+        # ValueError the entire portfolio pass.
+        pct_diff = _finite_float(ai_eval.get("pct_diff", 0), 0.0)
         if verdict == "AVOID" or verdict == "SELL":
             ai_penalty = 0.5  # Heavy penalty
         elif pct_diff < -15.0:
@@ -307,6 +350,13 @@ def kelly_size_holding(
     # a penalty applied before the clamp was a no-op on exactly the names it
     # was meant to shrink: 0.5 × 23 still clamped to the 25% ceiling.
     half_kelly = raw_blend * HALF_KELLY_FACTOR
+    if not math.isfinite(half_kelly):
+        return {
+            "symbol": symbol,
+            "error": "Non-finite Kelly fraction (degenerate returns)",
+            "recommended_pct": None,
+            "recommended_usd": None,
+        }
     final_pct  = max(0.0, min(half_kelly, _max_position_pct())) * ai_penalty
 
     # Current vs optimal
@@ -491,9 +541,9 @@ def run_kelly_analysis(holdings: list[dict], total_portfolio: float,
     results = []
     for h in holdings:
         sym   = h.get("symbol", "")
-        eq    = float(h.get("equity", 0))
-        cost  = float(h.get("average_buy_price", 0))
-        price = float(h.get("current_price", 0))
+        eq    = _finite_float(h.get("equity", 0))
+        cost  = _finite_float(h.get("average_buy_price", 0))
+        price = _finite_float(h.get("current_price", 0))
         upside = None
         if analyst_targets and sym in analyst_targets:
             upside = analyst_targets[sym].get("upside_pct")
@@ -511,8 +561,10 @@ def run_kelly_analysis(holdings: list[dict], total_portfolio: float,
         eq_by_symbol[sym] = eq
         returns_by_symbol[sym] = rets
 
-    # ── Reconciliation overlays (only rows with a numeric optimal_pct) ──────────
-    sized = [r for r in results if isinstance(r.get("optimal_pct"), (int, float))]
+    # ── Reconciliation overlays (only rows with a finite optimal_pct) ──────────
+    # NaN is a float — treating it as sized used to poison haircut_gross,
+    # allocated_pct, and the JSON dashboard payload.
+    sized = [r for r in results if _has_finite_optimal(r)]
     haircuts = _correlation_haircuts(
         [r["symbol"] for r in sized], returns_by_symbol, _corr_threshold()
     )
@@ -530,13 +582,15 @@ def run_kelly_analysis(holdings: list[dict], total_portfolio: float,
                         haircuts.get(r["symbol"], 1.0), gross_factor)
         for r in sized
     ]
-    # Carry through any error rows (no optimal_pct) unchanged, tagged for clarity.
+    # Carry through any error rows (no finite optimal_pct) unchanged, tagged for clarity.
     for r in results:
-        if not isinstance(r.get("optimal_pct"), (int, float)):
+        if not _has_finite_optimal(r):
             reconciled.append({**r, "corr_haircut": 1.0})
 
     # Portfolio-level stats (post-reconciliation)
-    allocated_pct   = sum(r["optimal_pct"] for r in reconciled if r.get("optimal_pct"))
+    allocated_pct   = sum(
+        r["optimal_pct"] for r in reconciled if _has_finite_optimal(r) and r["optimal_pct"]
+    )
     over_positions  = [r for r in reconciled if r.get("action") == "TRIM"]
     under_positions = [r for r in reconciled if r.get("action") == "ADD"]
     avoid_positions = [r for r in reconciled if r.get("action") == "AVOID"]
@@ -544,7 +598,10 @@ def run_kelly_analysis(holdings: list[dict], total_portfolio: float,
     # not leak NaN into the JSON payload (strict parsers reject it).
     positive_kellys = [
         r["half_kelly"] for r in reconciled
-        if isinstance(r.get("half_kelly"), (int, float)) and r["half_kelly"] > 0
+        if isinstance(r.get("half_kelly"), (int, float))
+        and not isinstance(r.get("half_kelly"), bool)
+        and math.isfinite(r["half_kelly"])
+        and r["half_kelly"] > 0
     ]
 
     return {
