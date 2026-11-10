@@ -169,6 +169,51 @@ def test_wrong_type_string_key_falls_back_not_numeric_error(tmp_path, monkeypatc
     assert loaded["version"] == ac.DEFAULT_CONFIG["version"]
 
 
+def test_validate_action_does_not_trap_exits_behind_entry_caps(tmp_path, monkeypatch):
+    """SELL/TRIM must remain executable after a position outgrows the entry cap
+    or leaves the scanner price band — otherwise auto-trade cannot close it."""
+    cfg = dict(ac.DEFAULT_CONFIG)
+    cfg["auto_trade"] = True
+    cfg["max_stock_per_trade"] = 5000.0
+    cfg["scanner_timeframe"] = "stock"   # price-capped penny universe
+    cfg["scanner_price_min"] = 0.10
+    cfg["scanner_price_max"] = 10.00
+    path = tmp_path / "gesh_config.json"
+    path.write_text(json.dumps(cfg))
+    monkeypatch.setenv("GESH_CONFIG_PATH", str(path))
+
+    # Appreciated long: $4k entry is now $6.2k, above the $5k per-trade cap.
+    ok, reason = ac.validate_action(
+        "SELL", "NVDA", trade_usd=6200.0, open_positions=3, current_cash=200.0
+    )
+    assert ok is True, reason
+
+    # Partial trim of the same oversized book.
+    ok, reason = ac.validate_action(
+        "TRIM", "NVDA", trade_usd=6200.0, open_positions=3, current_cash=200.0
+    )
+    assert ok is True, reason
+
+    # Winner that broke out of the penny ceiling, or loser that fell through
+    # the floor — both must still be closeable.
+    ok, reason = ac.validate_action(
+        "SELL", "XYZ", trade_usd=800.0, open_positions=1,
+        current_cash=200.0, current_price=12.50,
+    )
+    assert ok is True, reason
+    ok, reason = ac.validate_action(
+        "SELL", "XYZ", trade_usd=80.0, open_positions=1,
+        current_cash=200.0, current_price=0.05,
+    )
+    assert ok is True, reason
+
+    # Entry-side checks are unchanged: the same oversized BUY is still blocked.
+    ok, reason = ac.validate_action(
+        "BUY", "NVDA", trade_usd=6200.0, open_positions=1, current_cash=100_000
+    )
+    assert ok is False and "exceeds max" in reason
+
+
 def test_wrong_type_bool_fails_safe(tmp_path, monkeypatch):
     # auto_trade is the live-execution gate: a truthy non-bool ("yes", 1) must
     # fall back to the SAFE default False, never accidentally enable execution.
