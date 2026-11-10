@@ -103,6 +103,17 @@ TRADE_ACTIONS = frozenset({"BUY", "ADD", "TRIM", "SELL"})
 LIVE_PERMISSION_REASON = "Auto-trade is OFF — review and execute manually"
 
 
+def _finite_number(value: Any) -> bool:
+    """True for a real int/float usable in gate comparisons.
+
+    bool subclasses int, and NaN/inf make every ``<`` / ``>`` / ``>=`` False,
+    so both must be rejected before they reach a safety check.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    return math.isfinite(value)
+
+
 @dataclass(frozen=True)
 class ActionCheck:
     """Result of ``validate_action``.
@@ -340,27 +351,32 @@ def validate_action(
 
     # Non-finite sizes fail closed: ``NaN > cap`` is False in IEEE-754, which
     # would otherwise let a missing/poisoned size through the dollar cap.
-    if (
-        not isinstance(trade_usd, (int, float))
-        or isinstance(trade_usd, bool)
-        or not math.isfinite(trade_usd)
-    ):
+    if not _finite_number(trade_usd) or trade_usd < 0:
         return ActionCheck(
             False, "Invalid trade size — expected a finite number", "INVALID_SIZE"
         )
-    # Cash only feeds BUY/ADD gates. Rejecting it on SELL/TRIM would block
-    # emergency exits when the broker snapshot is dirty.
+    # Position count and cash only feed BUY/ADD gates. Rejecting them on
+    # SELL/TRIM would block emergency exits when the broker snapshot is dirty.
+    if action in ("BUY", "ADD") and (
+        not _finite_number(open_positions) or open_positions < 0
+    ):
+        return ActionCheck(
+            False,
+            "Invalid open position count — expected a finite number",
+            "INVALID_POSITIONS",
+        )
     if (
         current_cash is not None
         and action in ("BUY", "ADD")
-        and (
-            not isinstance(current_cash, (int, float))
-            or isinstance(current_cash, bool)
-            or not math.isfinite(current_cash)
-        )
+        and not _finite_number(current_cash)
     ):
         return ActionCheck(
             False, "Invalid cash — expected a finite number", "INVALID_CASH"
+        )
+    # A NaN quote would skip the scanner min/max comparisons.
+    if current_price is not None and not _finite_number(current_price):
+        return ActionCheck(
+            False, "Invalid price — expected a finite number", "INVALID_PRICE"
         )
 
     # Size / position / cash / price first — never gated on auto_trade.
